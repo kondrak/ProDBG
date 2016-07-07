@@ -333,6 +333,37 @@ impl Ui {
     }
 
     #[inline]
+    pub fn push_item_width(&self, width: f32) {
+        unsafe { ((*self.api).push_item_width)(width) }
+    }
+
+    #[inline]
+    pub fn pop_item_width(&self) {
+        unsafe { ((*self.api).pop_item_width)(); }
+    }
+
+    #[inline]
+    pub fn same_line(&self, column_x: i32, spacing_w: i32) {
+        unsafe { ((*self.api).same_line)(column_x, spacing_w) }
+    }
+
+    #[inline]
+    pub fn checkbox(&self, label: &str, state: &mut bool) -> bool{
+        let c_label = CFixedString::from_str(label).as_ptr();
+        let mut c_state: i32 = if *state {
+            1
+        } else {
+            0
+        };
+        let res;
+        unsafe {
+            res = ((*self.api).checkbox)(c_label, &mut c_state) != 0
+        };
+        *state = c_state != 0;
+        return res;
+    }
+
+    #[inline]
     pub fn calc_text_size(&self, text: &str, offset: usize) -> (f32, f32) {
         unsafe {
             if offset == 0 {

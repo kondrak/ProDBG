@@ -99,7 +99,7 @@ pub struct CPdUI {
 	pub pop_style_var: extern fn(c_int),
 	pub get_font_size: extern fn() -> f32,
 	pub push_item_width: extern fn(c_float),
-	pub pop_item_width: *mut extern fn () -> c_void,
+	pub pop_item_width: extern fn (),
 	pub calc_item_width: *mut extern fn () -> c_float,
 	pub push_allow_keyboard_focus: extern fn(c_int),
 	pub pop_allow_keyboard_focus: *mut extern fn () -> c_void,
