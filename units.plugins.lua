@@ -222,6 +222,17 @@ RustSharedLibrary {
 -----------------------------------------------------------------------------------------------------------------------
 
 RustSharedLibrary {
+	Name = "amiga_uae_view_plugin",
+	CargoConfig = "src/addons/amiga_uae_view_plugin/Cargo.toml",
+	Sources = {
+		get_rs_src("src/addons/amiga_uae_view_plugin"),
+		get_rs_src("api/rust/prodbg"),
+	}
+}
+
+-----------------------------------------------------------------------------------------------------------------------
+
+RustSharedLibrary {
 	Name = "bitmap_memory",
 	CargoConfig = "src/plugins/bitmap_memory/Cargo.toml",
 	Sources = {
@@ -323,6 +334,7 @@ Default "hex_memory_plugin"
 --Default "workspace_plugin"
 Default "console_plugin"
 Default "amiga_uae_plugin"
+Default "amiga_uae_view_plugin"
 Default "bitmap_memory"
 Default "memory_view"
 Default "dummy_backend_plugin"

@@ -1,14 +1,11 @@
 [package]
-name = "core"
+name = "amiga_uae_view_plugin"
 version = "0.1.0"
 authors = ["Daniel Collin <daniel@collin.com>"]
 
-[dependencies]
-walkdir = "0.1.5"
-notify = "^2.5.0"
-libloading = "0.2.0"
-tempdir = "0.3"
-minifb = "0.8.1"
-dynamic_reload = "0.2.0"
-prodbg_api = { path = "../../../api/rust/prodbg" }
+[lib]
+name = "amiga_uae_view_plugin"
+crate-type = ["dylib"]
 
+[dependencies]
+prodbg_api = { path = "../../../api/rust/prodbg" }
