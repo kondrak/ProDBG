@@ -24,6 +24,10 @@ impl MemoryCellEditor {
         (&mut self.buf[0..data.len()]).copy_from_slice(data.as_bytes());
         self.should_take_focus = true;
     }
+
+    pub fn set_inactive(&mut self) {
+        self.address = None;
+    }
 }
 
 struct MemoryView {
@@ -35,32 +39,44 @@ struct MemoryView {
 }
 
 impl MemoryView {
-    fn render_line(editor: &mut MemoryCellEditor, ui: &mut Ui, address: usize, data: &[u8]) {
+    fn render_line(editor: &mut MemoryCellEditor, ui: &mut Ui, address: usize, data: &mut [u8]) {
         ui.text(&format!("{:#010x}", address));
         ui.same_line(0, -1);
         ui.push_style_var_vec(ImGuiStyleVar::FramePadding, PDVec2{x: 0.0, y: 0.0});
 //        ui.push_style_var_vec(ImGuiStyleVar::ItemSpacing, PDVec2{x: 0.0, y: 0.0});
         let mut cur_address = address;
-        for byte in data {
+        let mut new_cell_value = None;
+        for byte in data.iter() {
             ui.same_line(0, -1);
             if editor.address == Some(cur_address) {
                 let width = ui.calc_text_size("ff", 0).0;
                 if editor.should_take_focus {
+                    // TODO: move cursor to start of field
                     ui.set_keyboard_focus_here(0);
                     editor.should_take_focus = false;
                 }
                 ui.push_item_width(width);
-                let flags = InputTextFlags::CharsHexadecimal as i32|InputTextFlags::EnterReturnsTrue as i32|InputTextFlags::AutoSelectAll as i32|InputTextFlags::NoHorizontalScroll as i32|InputTextFlags::AlwaysInsertMode as i32;//|ImGuiInputTextFlags_CallbackAlways;
-                ui.input_text("##data", &mut editor.buf, flags);
+                let flags = InputTextFlags::CharsHexadecimal as i32|InputTextFlags::EnterReturnsTrue as i32|InputTextFlags::NoHorizontalScroll as i32|InputTextFlags::AlwaysInsertMode as i32|InputTextFlags::AlwaysInsertMode as i32;//|InputTextFlags::CallbackAlways as i32;
+                if ui.input_text("##data", &mut editor.buf, flags) {
+                    let text = String::from_utf8(editor.buf.clone()).unwrap();
+                    let new_value = u8::from_str_radix(&text[0..2], 16).unwrap();
+                    let offset = cur_address - address;
+                    new_cell_value = Some((offset, new_value));
+                }
                 ui.pop_item_width()
             } else {
                 let text = format!("{:02x}", byte);
                 ui.text(&text);
                 if ui.is_item_hovered() && ui.is_mouse_clicked(0, false) {
+                    //TODO: send change to ProDBG
                     editor.change_address(cur_address, &text);
                 }
             }
             cur_address += 1;
+        }
+        if let Some((offset, new_value)) = new_cell_value {
+            data[offset] = new_value;
+            editor.set_inactive();
         }
         let copy:Vec<u8> = data.iter().map(|byte|
             match *byte {
@@ -121,7 +137,7 @@ impl View for MemoryView {
             _ => self.bytes_per_line,
         };
 
-        for line in self.data.chunks(bytes_per_line) {
+        for line in self.data.chunks_mut(bytes_per_line) {
             Self::render_line(&mut self.memory_editor, ui, address, line);
             address += line.len();
         }
