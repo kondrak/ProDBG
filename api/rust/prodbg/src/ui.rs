@@ -392,6 +392,16 @@ impl Ui {
     }
 
     #[inline]
+    pub fn is_item_hovered(&self) -> bool {
+        unsafe { ((*self.api).is_item_hovered)() != 0}
+    }
+
+    #[inline]
+    pub fn is_mouse_clicked(&self, button: i32, repeat: bool) -> bool {
+        unsafe { ((*self.api).is_mouse_clicked)(button, true_is_1!(repeat)) != 0}
+    }
+
+    #[inline]
     pub fn checkbox(&self, label: &str, state: &mut bool) -> bool{
         unsafe {
             let c_label = CFixedString::from_str(label).as_ptr();

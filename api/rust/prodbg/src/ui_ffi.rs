@@ -255,7 +255,7 @@ pub struct CPdUI {
 	pub log_to_clipboard: extern fn(c_int),
 	pub log_finish: *mut extern fn () -> c_void,
 	pub log_buttons: *mut extern fn () -> c_void,
-	pub is_item_hovered: *mut extern fn () -> c_int,
+	pub is_item_hovered: extern fn () -> c_int,
 	pub is_item_hovered_rect: *mut extern fn () -> c_int,
 	pub is_item_active: *mut extern fn () -> c_int,
 	pub is_item_visible: *mut extern fn () -> c_int,
