@@ -136,6 +136,45 @@ pub enum Key {
     Count = 107,
 }
 
+// Flags for ImGui::InputText()
+pub enum InputTextFlags {
+    // Default: 0
+    CharsDecimal        = 1 << 0,   // Allow 0123456789.+-*/
+    CharsHexadecimal    = 1 << 1,   // Allow 0123456789ABCDEFabcdef
+    CharsUppercase      = 1 << 2,   // Turn a..z into A..Z
+    CharsNoBlank        = 1 << 3,   // Filter out spaces, tabs
+    AutoSelectAll       = 1 << 4,   // Select entire text when first taking mouse focus
+    EnterReturnsTrue    = 1 << 5,   // Return 'true' when Enter is pressed (as opposed to when the value was modified)
+    CallbackCompletion  = 1 << 6,   // Call user function on pressing TAB (for completion handling)
+    CallbackHistory     = 1 << 7,   // Call user function on pressing Up/Down arrows (for history handling)
+    CallbackAlways      = 1 << 8,   // Call user function every time. User code may query cursor position, modify text buffer.
+    CallbackCharFilter  = 1 << 9,   // Call user function to filter character. Modify data->EventChar to replace/filter input, or return 1 to discard character.
+    AllowTabInput       = 1 << 10,  // Pressing TAB input a '\t' character into the text field
+    CtrlEnterForNewLine = 1 << 11,  // In multi-line mode, allow exiting edition by pressing Enter. Ctrl+Enter to add new line (by default adds new lines with Enter).
+    NoHorizontalScroll  = 1 << 12,  // Disable following the cursor horizontally
+    AlwaysInsertMode    = 1 << 13,  // Insert mode
+    ReadOnly            = 1 << 14,  // Read-only mode
+    Password            = 1 << 15,  // Password mode, display all characters as '*'
+    // [Internal]
+    Multiline           = 1 << 20   // For internal use by InputTextMultiline()
+}
+
+pub enum ImGuiStyleVar
+{
+    Alpha = 0,           // float
+    WindowPadding,       // ImVec2
+    WindowRounding,      // float
+    WindowMinSize,       // ImVec2
+    ChildWindowRounding, // float
+    FramePadding,        // ImVec2
+    FrameRounding,       // float
+    ItemSpacing,         // ImVec2
+    ItemInnerSpacing,    // ImVec2
+    IndentSpacing,       // float
+    GrabMinSize          // float
+}
+
+
 #[derive(Clone)]
 pub struct Ui {
     pub api: *mut CPdUI,
@@ -318,13 +357,18 @@ impl Ui {
     }
 
     #[inline]
-	pub fn push_style_var(&self, index: usize, val: f32) {
+	pub fn push_style_var(&self, index: ImGuiStyleVar, val: f32) {
         unsafe { ((*self.api).push_style_var)(index as u32, val) }
     }
 
     #[inline]
-	pub fn push_style_var_vec(&self, index: usize, val: PDVec2) {
+	pub fn push_style_var_vec(&self, index: ImGuiStyleVar, val: PDVec2) {
         unsafe { ((*self.api).push_style_var_vec)(index as u32, val) }
+    }
+
+    #[inline]
+	pub fn pop_style_var(&self, count: usize) {
+        unsafe { ((*self.api).pop_style_var)(count as i32) }
     }
 
     #[inline]
@@ -349,29 +393,36 @@ impl Ui {
 
     #[inline]
     pub fn checkbox(&self, label: &str, state: &mut bool) -> bool{
-        let c_label = CFixedString::from_str(label).as_ptr();
-        let mut c_state: i32 = if *state {
-            1
-        } else {
-            0
-        };
-        let res;
         unsafe {
-            res = ((*self.api).checkbox)(c_label, &mut c_state) != 0
+            let c_label = CFixedString::from_str(label).as_ptr();
+            let mut c_state: i32 = if *state { 1 } else { 0 };
+            let res = ((*self.api).checkbox)(c_label, &mut c_state) != 0;
+            *state = c_state != 0;
+            return res;
         };
-        *state = c_state != 0;
-        return res;
+    }
+
+    #[inline]
+    pub fn input_text(&self, label: &str, buf: &mut [u8], flags: i32) -> bool {
+        unsafe {
+            let c_label = CFixedString::from_str(label).as_ptr();
+            let buf_len = buf.len() as i32;
+            let buf_pointer = buf.as_mut_ptr() as *mut i8;
+            extern fn null_callback(_: *mut PDUIInputTextCallbackData) {}
+            ((*self.api).input_text)(c_label, buf_pointer, buf_len, flags, null_callback, ptr::null_mut()) != 0
+        }
     }
 
     #[inline]
     pub fn calc_text_size(&self, text: &str, offset: usize) -> (f32, f32) {
         unsafe {
+            let start = CFixedString::from_str(text);
             if offset == 0 {
-                let t = ((*self.api).calc_text_size)(text.as_ptr(), ptr::null(), 0, -1.0);
+                let t = ((*self.api).calc_text_size)(start.as_ptr(), ptr::null(), 0, -1.0);
                 (t.x, t.y)
             } else {
-                let slice = &text[offset..];
-                let t = ((*self.api).calc_text_size)(text.as_ptr(), slice.as_ptr(), 0, -1.0);
+                let slice = &start.as_str()[offset..];
+                let t = ((*self.api).calc_text_size)(start.as_ptr(), slice.as_ptr(), 0, -1.0);
                 (t.x, t.y)
             }
         }

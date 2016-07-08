@@ -28,6 +28,7 @@ pub use capstone_service::*;
 pub use message_service::*;
 pub use dialogs::*;
 pub use ui::*;
+pub use ui_ffi::PDVec2;
 pub use view::*;
 pub use cfixed_string::*;
 pub use io::*;

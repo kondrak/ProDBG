@@ -1,22 +1,37 @@
 #[macro_use]
 extern crate prodbg_api;
 
-use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, Vec2};
+use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, PDVec2, InputTextFlags, Key, ImGuiStyleVar};
 use std::str;
 
 struct MemoryView {
     data: Vec<u8>,
+    start_address: usize,
     bytes_per_line: usize,
     chars_per_address: usize,
+    edited_address: Option<usize>,
+    buf: Vec<u8>,
 }
 
 impl MemoryView {
-    fn render_line(ui: &mut Ui, address: usize, data: &[u8]) {
+    fn render_line(edited_address: Option<usize>, buf: &mut [u8], ui: &mut Ui, address: usize, data: &[u8]) {
         ui.text(&format!("{:#010x}", address));
         ui.same_line(0, -1);
+//        ui.push_style_var_vec(ImGuiStyleVar::FramePadding, PDVec2{x: 0.0, y: 0.0});
+//        ui.push_style_var_vec(ImGuiStyleVar::ItemSpacing, PDVec2{x: 0.0, y: 0.0});
+        let mut cur_address = address;
         for byte in data {
             ui.same_line(0, -1);
-            ui.text(&format!("{:02x}", byte));
+            if edited_address == Some(cur_address) {
+                let width = ui.calc_text_size("ff", 0).0;
+                ui.push_item_width(width);
+                let flags = InputTextFlags::CharsHexadecimal as i32|InputTextFlags::EnterReturnsTrue as i32|InputTextFlags::AutoSelectAll as i32|InputTextFlags::NoHorizontalScroll as i32|InputTextFlags::AlwaysInsertMode as i32;//|ImGuiInputTextFlags_CallbackAlways;
+                ui.input_text("##data", buf, flags);
+                ui.pop_item_width()
+            } else {
+                ui.text(&format!("{:02x}", byte));
+            }
+            cur_address += 1;
         }
         let copy:Vec<u8> = data.iter().map(|byte|
             match *byte {
@@ -26,6 +41,7 @@ impl MemoryView {
         ).collect();
         ui.same_line(0, -1);
         ui.text(str::from_utf8(&copy).unwrap());
+//        ui.pop_style_var(2);
     }
 
     fn render_header(&mut self, ui: &mut Ui) {
@@ -48,8 +64,11 @@ impl View for MemoryView {
     fn new(_: &Ui, _: &Service) -> Self {
         MemoryView {
             data: vec![0; 1024],
+            start_address: 0,
             bytes_per_line: 8,
             chars_per_address: 10,
+            edited_address: Some(0),
+            buf: vec!(0; 32),
         }
     }
 
@@ -73,7 +92,7 @@ impl View for MemoryView {
             _ => self.bytes_per_line,
         };
         for line in self.data.chunks(bytes_per_line) {
-            Self::render_line(ui, address, line);
+            Self::render_line(self.edited_address, &mut self.buf, ui, address, line);
             address += line.len();
         }
 
