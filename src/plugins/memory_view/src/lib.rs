@@ -1,8 +1,13 @@
 #[macro_use]
 extern crate prodbg_api;
 
-use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, PDVec2, InputTextFlags, Key, ImGuiStyleVar};
+use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, PDVec2, InputTextFlags, Key, ImGuiStyleVar, EventType};
 use std::str;
+use std::ffi::CStr;
+
+const BLOCK_SIZE: usize = 1024;
+// ProDBG does not respond to requests with low addresses.
+const START_ADDRESS: usize = 0xf0000;
 
 struct MemoryCellEditor {
     address: Option<usize>,
@@ -30,16 +35,59 @@ impl MemoryCellEditor {
     }
 }
 
+struct InputText {
+    // TODO: What buffer do we really need for address?
+    buf: [u8; 20],
+    value: usize,
+}
+
+impl InputText {
+    pub fn new() -> InputText {
+        let mut res = InputText {
+            buf: [0; 20],
+            value: 0,
+        };
+        res.set_value(0);
+        return res;
+    }
+
+    pub fn render(&mut self, ui: &mut Ui) -> bool {
+        let flags = InputTextFlags::CharsHexadecimal as i32|InputTextFlags::EnterReturnsTrue as i32|InputTextFlags::NoHorizontalScroll as i32|InputTextFlags::AlwaysInsertMode as i32|InputTextFlags::AlwaysInsertMode as i32;//|InputTextFlags::CallbackAlways as i32;
+        if ui.input_text("##address", &mut self.buf, flags) {
+            // TODO: can we just use original buffer instead?
+            let len = self.buf.iter().position(|&b| b == 0).unwrap();
+            let slice = str::from_utf8(&self.buf[0..len]).unwrap();
+            let old_value = self.value;
+            self.value = usize::from_str_radix(slice, 16).unwrap();
+            return self.value != old_value;
+        }
+        return false;
+    }
+
+    pub fn get_value(&self) -> usize {
+        self.value
+    }
+
+    pub fn set_value(&mut self, value: usize) {
+        self.value = value;
+        let data = format!("{:08x}", value);
+        (&mut self.buf[0..data.len()]).copy_from_slice(data.as_bytes());
+        self.buf[data.len() + 1] = 0;
+    }
+}
+
 struct MemoryView {
     data: Vec<u8>,
-    start_address: usize,
+    start_address: InputText,
     bytes_per_line: usize,
     chars_per_address: usize,
     memory_editor: MemoryCellEditor,
+    memory_request: Option<(usize, usize)>,
 }
 
 impl MemoryView {
     fn render_line(editor: &mut MemoryCellEditor, ui: &mut Ui, address: usize, data: &mut [u8]) {
+        //TODO: Hide editor when user clicks somewhere else
         ui.text(&format!("{:#010x}", address));
         ui.same_line(0, -1);
         ui.push_style_var_vec(ImGuiStyleVar::FramePadding, PDVec2{x: 0.0, y: 0.0});
@@ -68,7 +116,6 @@ impl MemoryView {
                 let text = format!("{:02x}", byte);
                 ui.text(&text);
                 if ui.is_item_hovered() && ui.is_mouse_clicked(0, false) {
-                    //TODO: send change to ProDBG
                     editor.change_address(cur_address, &text);
                 }
             }
@@ -78,9 +125,10 @@ impl MemoryView {
             data[offset] = new_value;
             editor.set_inactive();
         }
+        // TODO: align data
         let copy:Vec<u8> = data.iter().map(|byte|
             match *byte {
-                32...128 => *byte,
+                32...127 => *byte,
                 _ => '.' as u8,
             }
         ).collect();
@@ -91,8 +139,15 @@ impl MemoryView {
     }
 
     fn render_header(&mut self, ui: &mut Ui) {
-//        ui.push_item_width(128.0);
-        ui.text("Start Address");
+        ui.text("0x");
+        ui.same_line(0, 0);
+        ui.push_style_var_vec(ImGuiStyleVar::FramePadding, PDVec2{x: 1.0, y: 0.0});
+        ui.push_item_width(ui.calc_text_size("00000000", 0).0 + 2.0);
+        if self.start_address.render(ui) {
+            self.memory_request = Some((self.start_address.get_value(), BLOCK_SIZE));
+        }
+        ui.pop_item_width();
+        ui.pop_style_var(1);
         ui.same_line(0, -1);
         let mut is_auto = self.bytes_per_line == 0;
         ui.checkbox("Auto width", &mut is_auto);
@@ -102,22 +157,58 @@ impl MemoryView {
             self.bytes_per_line = 16;
         }
 //        ui.input_text("Size", data->sizeText, sizeof(data->sizeText), 0, 0, 0);
-//        ui.pop_item_width();
+    }
+
+    fn process_events(&mut self, reader: &mut Reader) {
+        for event_type in reader.get_events() {
+            match event_type {
+                et if et == EventType::SetMemory as i32 => {
+                    println!("Updating memory");
+                    self.update_memory(reader);
+                },
+                _ => {}//println!("Got unknown event type: {:?}", event_type)}
+            }
+        }
+    }
+
+    fn update_memory(&mut self, reader: &mut Reader) {
+        match reader.find_u64("address") {
+            Ok(address) => {
+                self.start_address.set_value(address as usize);
+                println!("Setting address {}", address);
+            },
+            Err(err) => {
+                println!("Could not get address: {:?}", err);
+                return;
+            }
+        }
+        match reader.find_data("data") {
+            Ok(data) => {
+                println!("Got memory. Length is {}, buf ", data.len());
+                // TODO: check length here
+                (&mut self.data[0..data.len()]).copy_from_slice(data);
+            },
+            Err(err) => {
+                println!("Could not read memory: {:?}", err);
+            }
+        }
     }
 }
 
 impl View for MemoryView {
     fn new(_: &Ui, _: &Service) -> Self {
         MemoryView {
-            data: vec![0; 1024],
-            start_address: 0,
+            data: vec![0; BLOCK_SIZE],
+            start_address: InputText::new(),
             bytes_per_line: 8,
             chars_per_address: 10,
             memory_editor: MemoryCellEditor::new(),
+            memory_request: Some((START_ADDRESS, BLOCK_SIZE)),
         }
     }
 
-    fn update(&mut self, ui: &mut Ui, _: &mut Reader, _: &mut Writer) {
+    fn update(&mut self, ui: &mut Ui, reader: &mut Reader, writer: &mut Writer) {
+        self.process_events(reader);
         self.render_header(ui);
         let mut address = 0;
         let bytes_per_line = match self.bytes_per_line {
@@ -142,30 +233,13 @@ impl View for MemoryView {
             address += line.len();
         }
 
-//        PDVec2 child_size = { 0.0f, 0.0f };
-//        PDVec2 windowSize = ui.get_window_size();
-//
-//        ui.begin_child("child", child_size, false, 0);
-//
-//        //PDRect rect = ui.getCurrentClipRect();
-//        //PDVec2 pos = ui.get_window_pos();
-//
-//        //printf("pos %f %f\n", pos.x, pos.y);
-//        //printf("rect %f %f %f %f\n", rect.x, rect.y, rect.width, rect.height);
-//
-//        // TODO: Fix me
-//        const float fontWidth = 13.0f; // ui.getFontWidth();
-//
-//        float drawableChars = (float)(int)(windowSize.x / (fontWidth + 23));
-//
-//        int drawableLineCount = (int)((size) / (int)drawableChars);
-//
-//        //printf("%d %d %d %d\n", drawableLineCount, (int)endAddress, (int)startAddress, (int)drawableChars);
-//
-//        drawData(data, uiFuncs, drawableLineCount, (int)drawableChars);
-//
-//        ui.end_child();
-
+        if let Some((address, size)) = self.memory_request {
+            writer.event_begin(EventType::GetMemory as u16);
+            writer.write_u64("address_start", address as u64);
+            writer.write_u64("size", size as u64);
+            writer.event_end();
+            self.memory_request = None;
+        }
     }
 }
 
