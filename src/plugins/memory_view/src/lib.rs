@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate prodbg_api;
 
-use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, PDVec2, InputTextFlags, Key, ImGuiStyleVar, EventType};
+use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, PDVec2, InputTextFlags, Key, ImGuiStyleVar, EventType, InputTextCallbackData};
 use std::str;
 use std::ffi::CStr;
 
@@ -13,6 +13,7 @@ struct MemoryCellEditor {
     address: Option<usize>,
     buf: Vec<u8>,
     should_take_focus: bool, // Needed since we cannot change focus in current frame
+    should_set_pos_to_start: bool, // Needed since we cannot change cursor position in next frame
 }
 
 impl MemoryCellEditor {
@@ -21,6 +22,7 @@ impl MemoryCellEditor {
             address: None,
             buf: vec!(0; 32),
             should_take_focus: false,
+            should_set_pos_to_start: false,
         }
     }
 
@@ -28,6 +30,7 @@ impl MemoryCellEditor {
         self.address = Some(address);
         (&mut self.buf[0..data.len()]).copy_from_slice(data.as_bytes());
         self.should_take_focus = true;
+        self.should_set_pos_to_start = true;
     }
 
     pub fn set_inactive(&mut self) {
@@ -53,7 +56,7 @@ impl InputText {
 
     pub fn render(&mut self, ui: &mut Ui) -> bool {
         let flags = InputTextFlags::CharsHexadecimal as i32|InputTextFlags::EnterReturnsTrue as i32|InputTextFlags::NoHorizontalScroll as i32|InputTextFlags::AlwaysInsertMode as i32|InputTextFlags::AlwaysInsertMode as i32;//|InputTextFlags::CallbackAlways as i32;
-        if ui.input_text("##address", &mut self.buf, flags) {
+        if ui.input_text("##address", &mut self.buf, flags, None) {
             // TODO: can we just use original buffer instead?
             let len = self.buf.iter().position(|&b| b == 0).unwrap();
             let slice = str::from_utf8(&self.buf[0..len]).unwrap();
@@ -95,17 +98,26 @@ impl MemoryView {
         ui.push_style_var_vec(ImGuiStyleVar::FramePadding, PDVec2{x: 0.0, y: 0.0});
         let width = ui.calc_text_size("ff", 0).0;
         if editor.should_take_focus {
-            // TODO: move cursor to start of field
             ui.set_keyboard_focus_here(0);
             editor.should_take_focus = false;
         }
         ui.push_item_width(width);
-        let flags = InputTextFlags::CharsHexadecimal as i32|InputTextFlags::EnterReturnsTrue as i32|InputTextFlags::NoHorizontalScroll as i32|InputTextFlags::AlwaysInsertMode as i32|InputTextFlags::AlwaysInsertMode as i32;//|InputTextFlags::CallbackAlways as i32;
-        if ui.input_text("##data", &mut editor.buf, flags) {
-            let text = String::from_utf8(editor.buf.clone()).unwrap();
-            new_value = Some(u8::from_str_radix(&text[0..2], 16).unwrap());
-            editor.set_inactive();
+        let flags = InputTextFlags::CharsHexadecimal as i32|InputTextFlags::EnterReturnsTrue as i32|InputTextFlags::NoHorizontalScroll as i32|InputTextFlags::AlwaysInsertMode as i32|InputTextFlags::CallbackAlways as i32;
+        let mut should_set_pos_to_start = editor.should_set_pos_to_start;
+        {
+            let callback = |mut data: InputTextCallbackData| {
+                if should_set_pos_to_start {
+                    data.set_cursor_pos(0);
+                    should_set_pos_to_start = false;
+                }
+            };
+            if ui.input_text("##data", &mut editor.buf, flags, Some(&callback)) {
+                let text = String::from_utf8(editor.buf.clone()).unwrap();
+                new_value = Some(u8::from_str_radix(&text[0..2], 16).unwrap());
+                editor.set_inactive();
+            }
         }
+        editor.should_set_pos_to_start = should_set_pos_to_start;
         ui.pop_item_width();
         ui.pop_style_var(1);
         return new_value;

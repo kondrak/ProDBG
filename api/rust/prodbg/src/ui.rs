@@ -242,6 +242,22 @@ pub struct ImageBuilder<'a> {
     border_color: Color,
 }
 
+pub struct InputTextCallbackData<'a>(&'a mut PDUIInputTextCallbackData);
+
+impl<'a> InputTextCallbackData<'a> {
+    pub fn new(original_data: &mut PDUIInputTextCallbackData) -> InputTextCallbackData {
+        InputTextCallbackData(original_data)
+    }
+
+    pub fn get_cursor_pos(&mut self) -> i32 {
+        self.0.cursor_pos
+    }
+
+    pub fn set_cursor_pos(&mut self, pos: i32) {
+        self.0.cursor_pos = pos
+    }
+}
+
 impl Ui {
     pub fn new(native_api: *mut CPdUI) -> Ui {
         Ui {
@@ -431,13 +447,23 @@ impl Ui {
     }
 
     #[inline]
-    pub fn input_text(&self, label: &str, buf: &mut [u8], flags: i32) -> bool {
+    // callback is not called the same frame as input was created
+    pub fn input_text(&self, label: &str, buf: &mut [u8], flags: i32, callback: Option<&FnMut(InputTextCallbackData)>) -> bool {
         unsafe {
             let c_label = CFixedString::from_str(label).as_ptr();
             let buf_len = buf.len() as i32;
             let buf_pointer = buf.as_mut_ptr() as *mut i8;
-            extern fn null_callback(_: *mut PDUIInputTextCallbackData) {}
-            ((*self.api).input_text)(c_label, buf_pointer, buf_len, flags, null_callback, ptr::null_mut()) != 0
+            if let Some(callback) = callback {
+                extern fn cb(data: *mut PDUIInputTextCallbackData) {
+                    unsafe {
+                        let callback: *const *mut FnMut(InputTextCallbackData) = mem::transmute((*data).user_data);
+                        (**callback)(InputTextCallbackData(&mut *data));
+                    }
+                };
+                ((*self.api).input_text)(c_label, buf_pointer, buf_len, flags, cb, mem::transmute(&callback)) != 0
+            } else {
+                ((*self.api).input_text)(c_label, buf_pointer, buf_len, flags, mem::transmute(ptr::null::<()>()), ptr::null_mut()) != 0
+            }
         }
     }
 
