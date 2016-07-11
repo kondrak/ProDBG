@@ -86,45 +86,40 @@ struct MemoryView {
 }
 
 impl MemoryView {
-    fn render_line(editor: &mut MemoryCellEditor, ui: &mut Ui, address: usize, data: &mut [u8]) {
-        //TODO: Hide editor when user clicks somewhere else
+    fn render_address(ui: &mut Ui, address: usize) {
         ui.text(&format!("{:#010x}", address));
-        ui.same_line(0, -1);
+    }
+
+    fn render_editor(ui: &mut Ui, editor: &mut MemoryCellEditor) -> Option<u8> {
+        let mut new_value = None;
         ui.push_style_var_vec(ImGuiStyleVar::FramePadding, PDVec2{x: 0.0, y: 0.0});
-//        ui.push_style_var_vec(ImGuiStyleVar::ItemSpacing, PDVec2{x: 0.0, y: 0.0});
-        let mut cur_address = address;
-        let mut new_cell_value = None;
-        for byte in data.iter() {
-            ui.same_line(0, -1);
-            if editor.address == Some(cur_address) {
-                let width = ui.calc_text_size("ff", 0).0;
-                if editor.should_take_focus {
-                    // TODO: move cursor to start of field
-                    ui.set_keyboard_focus_here(0);
-                    editor.should_take_focus = false;
-                }
-                ui.push_item_width(width);
-                let flags = InputTextFlags::CharsHexadecimal as i32|InputTextFlags::EnterReturnsTrue as i32|InputTextFlags::NoHorizontalScroll as i32|InputTextFlags::AlwaysInsertMode as i32|InputTextFlags::AlwaysInsertMode as i32;//|InputTextFlags::CallbackAlways as i32;
-                if ui.input_text("##data", &mut editor.buf, flags) {
-                    let text = String::from_utf8(editor.buf.clone()).unwrap();
-                    let new_value = u8::from_str_radix(&text[0..2], 16).unwrap();
-                    let offset = cur_address - address;
-                    new_cell_value = Some((offset, new_value));
-                }
-                ui.pop_item_width()
-            } else {
-                let text = format!("{:02x}", byte);
-                ui.text(&text);
-                if ui.is_item_hovered() && ui.is_mouse_clicked(0, false) {
-                    editor.change_address(cur_address, &text);
-                }
-            }
-            cur_address += 1;
+        let width = ui.calc_text_size("ff", 0).0;
+        if editor.should_take_focus {
+            // TODO: move cursor to start of field
+            ui.set_keyboard_focus_here(0);
+            editor.should_take_focus = false;
         }
-        if let Some((offset, new_value)) = new_cell_value {
-            data[offset] = new_value;
+        ui.push_item_width(width);
+        let flags = InputTextFlags::CharsHexadecimal as i32|InputTextFlags::EnterReturnsTrue as i32|InputTextFlags::NoHorizontalScroll as i32|InputTextFlags::AlwaysInsertMode as i32|InputTextFlags::AlwaysInsertMode as i32;//|InputTextFlags::CallbackAlways as i32;
+        if ui.input_text("##data", &mut editor.buf, flags) {
+            let text = String::from_utf8(editor.buf.clone()).unwrap();
+            new_value = Some(u8::from_str_radix(&text[0..2], 16).unwrap());
             editor.set_inactive();
         }
+        ui.pop_item_width();
+        ui.pop_style_var(1);
+        return new_value;
+    }
+
+    fn render_hex_byte(ui: &mut Ui, byte: u8, editor: &mut MemoryCellEditor, address: usize) {
+        let text = format!("{:02x}", byte);
+        ui.text(&text);
+        if ui.is_item_hovered() && ui.is_mouse_clicked(0, false) {
+            editor.change_address(address, &text);
+        }
+    }
+
+    fn render_ansi_string(ui: &mut Ui, data: &[u8]) {
         // TODO: align data
         let copy:Vec<u8> = data.iter().map(|byte|
             match *byte {
@@ -134,8 +129,26 @@ impl MemoryView {
         ).collect();
         ui.same_line(0, -1);
         ui.text(str::from_utf8(&copy).unwrap());
-        ui.pop_style_var(1);
-//        ui.pop_style_var(2);
+    }
+
+    fn render_line(editor: &mut MemoryCellEditor, ui: &mut Ui, address: usize, data: &mut [u8]) {
+        //TODO: Hide editor when user clicks somewhere else
+        Self::render_address(ui, address);
+        ui.same_line(0, -1);
+        let mut cur_address = address;
+        for byte in data.iter_mut() {
+            ui.same_line(0, -1);
+            if editor.address == Some(cur_address) {
+                if let Some(new_value) = Self::render_editor(ui, editor) {
+                    *byte = new_value;
+                    // TODO: send change to ProDBG
+                }
+            } else {
+                Self::render_hex_byte(ui, *byte, editor, cur_address);
+            }
+            cur_address += 1;
+        }
+        Self::render_ansi_string(ui, data);
     }
 
     fn render_header(&mut self, ui: &mut Ui) {
