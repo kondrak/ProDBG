@@ -55,6 +55,7 @@ pub struct PDVec4 {
 // (void (*)(struct PDUIInputTextCallbackData *, int, const char *, const char *)) insert_chars [void (*)(struct PDUIInputTextCallbackData *, int, const char *, const char *)]
 //
 #[repr(C)]
+#[derive(Debug)]
 pub struct PDUIInputTextCallbackData {
     pub event_flag: c_uint,
     pub flags: c_uint,
@@ -62,7 +63,7 @@ pub struct PDUIInputTextCallbackData {
     pub event_char: c_ushort,
     pub event_key: c_ushort,
     pub buf: *mut c_char,
-    pub buf_size: c_int,
+    pub buf_size: usize,
     pub buf_dirty: c_int,
     pub cursor_pos: c_int,
     pub selection_start: c_int,
