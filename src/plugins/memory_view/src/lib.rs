@@ -169,7 +169,6 @@ impl MemoryView {
         } else {
             self.bytes_per_line = 16;
         }
-//        ui.input_text("Size", data->sizeText, sizeof(data->sizeText), 0, 0, 0);
     }
 
     fn process_events(&mut self, reader: &mut Reader) {
