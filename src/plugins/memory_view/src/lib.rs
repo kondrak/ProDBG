@@ -8,26 +8,35 @@ const BLOCK_SIZE: usize = 1024;
 // ProDBG does not respond to requests with low addresses.
 const START_ADDRESS: usize = 0xf0000;
 
-struct MemoryCellEditor {
-    address: Option<usize>,
-    buf: Vec<u8>,
+struct HexMemoryEditor {
+    address: Option<usize>, // Address for first digit
+    digit_count: usize, // Amount of digits edited
+    cursor: usize, // Position of digit edited (0 = lowest address)
+    buf: [u8; 2], // Buffer for ImGui. Only one digit allowed
+    text: String, // Text representation of buffer
     should_take_focus: bool, // Needed since we cannot change focus in current frame
     should_set_pos_to_start: bool, // Needed since we cannot change cursor position in next frame
 }
 
-impl MemoryCellEditor {
-    pub fn new() -> MemoryCellEditor {
-        MemoryCellEditor {
+impl HexMemoryEditor {
+    pub fn new() -> HexMemoryEditor {
+        HexMemoryEditor {
             address: None,
-            buf: vec!(0; 32),
+            digit_count: 2,
+            cursor: 0,
+            buf: [0; 2],
+            text: String::new(),
             should_take_focus: false,
             should_set_pos_to_start: false,
         }
     }
 
-    pub fn change_address(&mut self, address: usize, data: &str) {
+    pub fn change_address(&mut self, address: usize, cursor: usize, data: &str) {
         self.address = Some(address);
-        (&mut self.buf[0..data.len()]).copy_from_slice(data.as_bytes());
+        self.cursor = cursor;
+        self.text = data.to_owned();
+        self.buf[0] = data.as_bytes()[cursor];
+        self.buf[1] = 0;
         self.should_take_focus = true;
         self.should_set_pos_to_start = true;
     }
@@ -177,9 +186,9 @@ impl DataView {
         }
         match *self {
             DataView::Hex(DataSize::OneByte) => {format_buffer!(u8, 1, "{:02x}");}
-            DataView::Hex(DataSize::TwoBytes) => {format_buffer!(u16, 2, "{:02x}");}
-            DataView::Hex(DataSize::FourBytes) => {format_buffer!(u32, 4, "{:02x}");}
-            DataView::Hex(DataSize::EightBytes) => {format_buffer!(u64, 8, "{:02x}");}
+            DataView::Hex(DataSize::TwoBytes) => {format_buffer!(u16, 2, "{:04x}");}
+            DataView::Hex(DataSize::FourBytes) => {format_buffer!(u32, 4, "{:08x}");}
+            DataView::Hex(DataSize::EightBytes) => {format_buffer!(u64, 8, "{:016x}");}
             DataView::Integer(DataSize::OneByte, false) => {format_buffer!(u8, 1, "{:3}");}
             DataView::Integer(DataSize::OneByte, true) => {format_buffer!(i8, 1, "{:4}");}
             DataView::Integer(DataSize::TwoBytes, false) => {format_buffer!(u16, 2, "{:5}");}
@@ -200,7 +209,7 @@ struct MemoryView {
     start_address: InputText,
     bytes_per_line: usize,
     chars_per_address: usize,
-    memory_editor: MemoryCellEditor,
+    memory_editor: HexMemoryEditor,
     memory_request: Option<(usize, usize)>,
     data_view: DataView
 }
@@ -210,41 +219,70 @@ impl MemoryView {
         ui.text(&format!("{:#010x}", address));
     }
 
-    fn render_editor(ui: &mut Ui, editor: &mut MemoryCellEditor) -> Option<u8> {
-        let mut new_value = None;
-        ui.push_style_var_vec(ImGuiStyleVar::FramePadding, PDVec2{x: 0.0, y: 0.0});
-        let width = ui.calc_text_size("ff", 0).0;
+    fn render_memory_editor(ui: &mut Ui, editor: &mut HexMemoryEditor, unit: &mut [u8]) -> bool {
+        ui.push_style_var_vec(ImGuiStyleVar::ItemSpacing, PDVec2{x: 0.0, y: 0.0});
+        // TODO: this can cause panic if text somewhy non-ASCII. Can we change this somehow?
+        if editor.cursor > 0 {
+            let left = &editor.text[0..editor.cursor];
+            ui.text(left);
+        }
+
+        let mut new_digit = None;
+        let width = ui.calc_text_size("f", 0).0;
         if editor.should_take_focus {
             ui.set_keyboard_focus_here(0);
             editor.should_take_focus = false;
         }
-        ui.push_item_width(width);
-        let flags = InputTextFlags::CharsHexadecimal as i32|InputTextFlags::EnterReturnsTrue as i32|InputTextFlags::NoHorizontalScroll as i32|InputTextFlags::AlwaysInsertMode as i32|InputTextFlags::CallbackAlways as i32;
+        let flags = InputTextFlags::CharsHexadecimal as i32|InputTextFlags::NoHorizontalScroll as i32|InputTextFlags::AlwaysInsertMode as i32|InputTextFlags::CallbackAlways as i32;
         let mut should_set_pos_to_start = editor.should_set_pos_to_start;
+        let mut cursor_pos = 0;
         {
             let callback = |mut data: InputTextCallbackData| {
                 if should_set_pos_to_start {
                     data.set_cursor_pos(0);
                     should_set_pos_to_start = false;
+                } else {
+                    cursor_pos = data.get_cursor_pos();
                 }
             };
-            if ui.input_text("##data", &mut editor.buf, flags, Some(&callback)) {
-                let text = String::from_utf8(editor.buf.clone()).unwrap();
-                new_value = Some(u8::from_str_radix(&text[0..2], 16).unwrap());
-                editor.set_inactive();
-            }
+            ui.same_line(0, -1);
+            ui.push_item_width(width);
+            ui.push_style_var_vec(ImGuiStyleVar::FramePadding, PDVec2{x: 0.0, y: 0.0});
+            ui.input_text("##data", &mut editor.buf, flags, Some(&callback));
+            ui.pop_style_var(1);
+            ui.pop_item_width();
+        }
+        if cursor_pos > 0 {
+            let text = String::from_utf8(editor.buf.iter().take(1).map(|x| *x).collect()).unwrap();
+            new_digit = Some(u8::from_str_radix(&text, 16).unwrap());
+            editor.set_inactive();
         }
         editor.should_set_pos_to_start = should_set_pos_to_start;
-        ui.pop_item_width();
+
+        if let Some(value) = new_digit {
+            let offset = (editor.digit_count - editor.cursor) / 2;
+            unit[offset] = if editor.cursor % 2 == 0 {
+                unit[offset] & 0b00001111 | (value << 4)
+            } else {
+                unit[offset] & 0b11110000 | value
+            };
+        }
+
+        if editor.cursor < editor.digit_count {
+            ui.same_line(0, -1);
+            let right = &editor.text[editor.cursor + 1..editor.digit_count];
+            ui.text(right);
+        }
+
         ui.pop_style_var(1);
-        return new_value;
+        return new_digit.is_some();
     }
 
-    fn render_unit(ui: &mut Ui, unit: &[u8], editor: &mut MemoryCellEditor, address: usize, view: DataView) {
+    fn render_unit(ui: &mut Ui, unit: &[u8], editor: &mut HexMemoryEditor, address: usize, view: DataView) {
         let text = view.format(unit);
         ui.text(&text);
         if ui.is_item_hovered() && ui.is_mouse_clicked(0, false) {
-            editor.change_address(address, &text);
+            editor.change_address(address, 1, &text);
         }
     }
 
@@ -260,25 +298,31 @@ impl MemoryView {
         ui.text(str::from_utf8(&copy).unwrap());
     }
 
-    fn render_line(editor: &mut MemoryCellEditor, ui: &mut Ui, address: usize, data: &mut [u8], view: DataView) {
+    fn render_line(editor: &mut HexMemoryEditor, ui: &mut Ui, address: usize, data: &mut [u8], view: DataView) {
         //TODO: Hide editor when user clicks somewhere else
-        Self::render_address(ui, address);
+        MemoryView::render_address(ui, address);
         ui.same_line(0, -1);
         let bytes_per_unit = view.byte_count();
         let mut cur_address = address;
         for unit in data.chunks_mut(bytes_per_unit as usize) {
             ui.same_line(0, -1);
-//            if editor.address == Some(cur_address) {
-//                if let Some(new_value) = Self::render_editor(ui, editor) {
-//                    *byte = new_value;
-//                    // TODO: send change to ProDBG
-//                }
-//            } else {
-                Self::render_unit(ui, unit, editor, cur_address, view);
-//            }
+            if editor.address == Some(cur_address) {
+                if MemoryView::render_memory_editor(ui, editor, unit) {
+                    // TODO: send change to ProDBG
+                    editor.text = view.format(unit);
+                }
+            } else {
+                MemoryView::render_unit(ui, unit, editor, cur_address, view);
+            }
             cur_address += bytes_per_unit as usize;
         }
-        Self::render_ansi_string(ui, data);
+        MemoryView::render_ansi_string(ui, data);
+    }
+
+    fn change_data_view(&mut self, view: DataView) {
+        self.data_view = view;
+        self.memory_editor.set_inactive();
+        self.memory_editor.digit_count = (view.byte_count() * 2) as usize;
     }
 
     fn render_data_view_picker(&mut self, ui: &mut Ui) {
@@ -290,12 +334,10 @@ impl MemoryView {
                 if ui.begin_menu($name, true) {
                     $(if ui.begin_menu(DataSize::$size.as_str(), true) {
                         if ui.menu_item("Unsigned", false, true) {
-                            self.data_view = DataView::Integer(DataSize::$size, false);
-                            println!("Changed to {:?}", self.data_view);
+                            self.change_data_view(DataView::Integer(DataSize::$size, false));
                         }
                         if ui.menu_item("Signed", false, true) {
-                            self.data_view = DataView::Integer(DataSize::$size, true);
-                            println!("Changed to {:?}", self.data_view);
+                            self.change_data_view(DataView::Integer(DataSize::$size, true));
                         }
                         ui.end_menu();
                     })+
@@ -305,8 +347,7 @@ impl MemoryView {
             ($variant:ident, $name:expr => $($size:ident),+) => {
                 if ui.begin_menu($name, true) {
                     $(if ui.menu_item(DataSize::$size.as_str(), false, true) {
-                        self.data_view = DataView::$variant(DataSize::$size);
-                        println!("Changed to {:?}", self.data_view);
+                        self.change_data_view(DataView::$variant(DataSize::$size));
                     })+
                     ui.end_menu();
                 }
@@ -385,7 +426,7 @@ impl View for MemoryView {
             start_address: InputText::new(),
             bytes_per_line: 8,
             chars_per_address: 10,
-            memory_editor: MemoryCellEditor::new(),
+            memory_editor: HexMemoryEditor::new(),
             memory_request: Some((START_ADDRESS, BLOCK_SIZE)),
             data_view: DataView::Hex(DataSize::OneByte),
         }
@@ -418,7 +459,7 @@ impl View for MemoryView {
         };
 
         for line in self.data.chunks_mut(bytes_per_line) {
-            Self::render_line(&mut self.memory_editor, ui, address, line, self.data_view);
+            MemoryView::render_line(&mut self.memory_editor, ui, address, line, self.data_view);
             address += line.len();
         }
 
