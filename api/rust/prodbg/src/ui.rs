@@ -4,7 +4,7 @@ use std::mem;
 use std::fmt;
 use std::fmt::Write;
 use scintilla::Scintilla;
-use std::os::raw::{c_void};
+use std::os::raw::{c_char, c_int, c_void};
 
 use CFixedString;
 
@@ -448,6 +448,7 @@ impl Ui {
 
     #[inline]
     // callback is not called the same frame as input was created
+    // TODO: should we use static dispatch here?
     pub fn input_text(&self, label: &str, buf: &mut [u8], flags: i32, callback: Option<&FnMut(InputTextCallbackData)>) -> bool {
         unsafe {
             let c_label = CFixedString::from_str(label).as_ptr();
@@ -464,6 +465,36 @@ impl Ui {
             } else {
                 ((*self.api).input_text)(c_label, buf_pointer, buf_len, flags, mem::transmute(ptr::null::<()>()), ptr::null_mut()) != 0
             }
+        }
+    }
+
+    /// Combobox
+    /// `height` is number of lines when combobox is open
+    /// Returns `true` if `current_item` was changed
+    pub fn combo(&self, label: &str, current_item: &mut usize, items: &[&str], count: usize, height: usize) -> bool {
+        extern fn c_get_item(closure: *mut c_void, item_index: c_int, res: *mut *const c_char) -> c_int {
+            unsafe {
+                let get_data: *const *mut FnMut(c_int, &mut *const c_char) -> c_int = mem::transmute(closure);
+                return (**get_data)(item_index, &mut *res);
+            }
+        }
+        unsafe {
+            let c_label = CFixedString::from_str(label).as_ptr();
+            let mut item = *current_item as i32;
+            let mut buffer = CFixedString::new();
+            let res;
+            {
+                let get_item = |item_index: c_int, res: &mut *const c_char| -> c_int {
+                    buffer = CFixedString::from_str(items[item_index as usize]);
+                    *res = buffer.as_ptr();
+                    return 1;
+                };
+                let tmp = &get_item as &FnMut(c_int, &mut *const c_char) -> c_int;
+                res = ((*self.api).combo3)(c_label, &mut item, c_get_item, mem::transmute(&tmp), count as i32, height as i32) != 0;
+            }
+            drop(buffer);
+            *current_item = item as usize;
+            return res;
         }
     }
 
