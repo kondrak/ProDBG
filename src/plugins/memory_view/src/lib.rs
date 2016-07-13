@@ -88,88 +88,81 @@ impl InputText {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum DataSize {
+pub enum NumberSize {
     OneByte,
     TwoBytes,
     FourBytes,
     EightBytes,
 }
 
-impl DataSize {
-    /// String representation of this `DataSize`
+impl NumberSize {
+    /// String representation of this `NumberSize`
     pub fn as_str(&self) -> &'static str {
         match *self {
-            DataSize::OneByte => "1 byte",
-            DataSize::TwoBytes => "2 bytes",
-            DataSize::FourBytes => "4 bytes",
-            DataSize::EightBytes => "8 bytes",
+            NumberSize::OneByte => "1 byte",
+            NumberSize::TwoBytes => "2 bytes",
+            NumberSize::FourBytes => "4 bytes",
+            NumberSize::EightBytes => "8 bytes",
         }
     }
 
-    /// Number of bytes represented by this `DataSize`
-    pub fn byte_count(&self) -> i32 {
+    /// Number of bytes represented by this `NumberSize`
+    pub fn byte_count(&self) -> usize {
         match *self {
-            DataSize::OneByte => 1,
-            DataSize::TwoBytes => 2,
-            DataSize::FourBytes => 4,
-            DataSize::EightBytes => 8,
+            NumberSize::OneByte => 1,
+            NumberSize::TwoBytes => 2,
+            NumberSize::FourBytes => 4,
+            NumberSize::EightBytes => 8,
         }
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum DataView {
-    Hex(DataSize),
-    Integer(DataSize, bool),
-    Float(DataSize),
+pub enum NumberRepresentation {
+    Hex = 0,
+    UnsignedDecimal,
+    SignedDecimal,
+    Float,
 }
 
-impl DataView {
-    /// String representation of `DataView`
-    pub fn as_str(&self) -> &'static str {
-        match *self {
-            DataView::Hex(DataSize::OneByte) => "Hex 1 byte",
-            DataView::Hex(DataSize::TwoBytes) => "Hex 2 bytes",
-            DataView::Hex(DataSize::FourBytes) => "Hex 4 bytes",
-            DataView::Hex(DataSize::EightBytes) => "Hex 8 bytes",
-            DataView::Integer(DataSize::OneByte, false) => "Int 1 byte",
-            DataView::Integer(DataSize::OneByte, true) => "Int 1 byte signed",
-            DataView::Integer(DataSize::TwoBytes, false) => "Int 2 bytes",
-            DataView::Integer(DataSize::TwoBytes, true) => "Int 2 byte signed",
-            DataView::Integer(DataSize::FourBytes, false) => "Int 4 bytes",
-            DataView::Integer(DataSize::FourBytes, true) => "Int 4 bytes signed",
-            DataView::Integer(DataSize::EightBytes, false) => "Int 8 bytes",
-            DataView::Integer(DataSize::EightBytes, true) => "Int 8 bytes signed",
-            DataView::Float(DataSize::OneByte) => "Float 1 byte",
-            DataView::Float(DataSize::TwoBytes) => "Float 2 bytes",
-            DataView::Float(DataSize::FourBytes) => "Float 4 bytes",
-            DataView::Float(DataSize::EightBytes) => "Float 8 bytes",
-        }
+static NUMBER_REPRESENTATION_STRINGS: [&'static str; 4] = ["Hex", "Signed decimal", "Unsigned decimal", "Float"];
+impl NumberRepresentation {
+    pub fn as_usize(&self) -> usize {
+        *self as usize
     }
 
-    /// Maximum number of chars needed to show number in this `DataView`
+    pub fn as_strings() -> &'static [&'static str] {
+        &NUMBER_REPRESENTATION_STRINGS
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct NumberView {
+    representation: NumberRepresentation,
+    size: NumberSize,
+    // TODO: add endianness
+}
+
+impl NumberView {
+    /// Maximum number of characters needed to show number
     // TODO: change to calculation from MAX/MIN when `const fn` is in stable Rust
-    pub fn maximum_chars_needed(&self) -> i32 {
-        match *self {
-            DataView::Hex(s) => s.byte_count() * 2,
-            DataView::Integer(DataSize::OneByte, false) => 3,
-            DataView::Integer(DataSize::OneByte, true) => 4,
-            DataView::Integer(DataSize::TwoBytes, false) => 5,
-            DataView::Integer(DataSize::TwoBytes, true) => 6,
-            DataView::Integer(DataSize::FourBytes, false) => 10,
-            DataView::Integer(DataSize::FourBytes, true) => 11,
-            DataView::Integer(DataSize::EightBytes, false) => 20,
-            DataView::Integer(DataSize::EightBytes, true) => 20,
-            DataView::Float(s) => s.byte_count() * 2,
-        }
-    }
-
-    // TODO: change to usize
-    pub fn byte_count(&self) -> i32 {
-        match *self {
-            DataView::Hex(s) => s.byte_count(),
-            DataView::Integer(s, _) => s.byte_count(),
-            DataView::Float(s) => s.byte_count(),
+    pub fn maximum_chars_needed(&self) -> usize {
+        match self.representation {
+            NumberRepresentation::Hex => self.size.byte_count() * 2,
+            NumberRepresentation::UnsignedDecimal => match self.size {
+                NumberSize::OneByte => 3,
+                NumberSize::TwoBytes => 5,
+                NumberSize::FourBytes => 10,
+                NumberSize::EightBytes => 20,
+            },
+            NumberRepresentation::SignedDecimal => match self.size {
+                NumberSize::TwoBytes => 6,
+                NumberSize::OneByte => 4,
+                NumberSize::FourBytes => 11,
+                NumberSize::EightBytes => 20,
+            },
+            // TODO: pick a proper representation for floats
+            NumberRepresentation::Float => self.size.byte_count() * 2,
         }
     }
 
@@ -184,22 +177,31 @@ impl DataView {
                 }
             };
         }
-        match *self {
-            DataView::Hex(DataSize::OneByte) => {format_buffer!(u8, 1, "{:02x}");}
-            DataView::Hex(DataSize::TwoBytes) => {format_buffer!(u16, 2, "{:04x}");}
-            DataView::Hex(DataSize::FourBytes) => {format_buffer!(u32, 4, "{:08x}");}
-            DataView::Hex(DataSize::EightBytes) => {format_buffer!(u64, 8, "{:016x}");}
-            DataView::Integer(DataSize::OneByte, false) => {format_buffer!(u8, 1, "{:3}");}
-            DataView::Integer(DataSize::OneByte, true) => {format_buffer!(i8, 1, "{:4}");}
-            DataView::Integer(DataSize::TwoBytes, false) => {format_buffer!(u16, 2, "{:5}");}
-            DataView::Integer(DataSize::TwoBytes, true) => {format_buffer!(i16, 2, "{:6}");}
-            DataView::Integer(DataSize::FourBytes, false) => {format_buffer!(u32, 4, "{:10}");}
-            DataView::Integer(DataSize::FourBytes, true) => {format_buffer!(i32, 4, "{:11}");}
-            DataView::Integer(DataSize::EightBytes, false) => {format_buffer!(u64, 8, "{:20}");}
-            DataView::Integer(DataSize::EightBytes, true) => {format_buffer!(i64, 8, "{:20}");}
-            DataView::Float(DataSize::FourBytes) => {format_buffer!(f32, 4, "{}");}
-            DataView::Float(DataSize::EightBytes) => {format_buffer!(f64, 8, "{}");}
-            _ => return "Error".to_owned()
+        match self.representation {
+            NumberRepresentation::Hex => match self.size {
+                NumberSize::OneByte => {format_buffer!(u8, 1, "{:02x}");}
+                NumberSize::TwoBytes => {format_buffer!(u16, 2, "{:04x}");}
+                NumberSize::FourBytes => {format_buffer!(u32, 4, "{:08x}");}
+                NumberSize::EightBytes => {format_buffer!(u64, 8, "{:016x}");}
+            },
+            NumberRepresentation::UnsignedDecimal => match self.size {
+                NumberSize::OneByte => {format_buffer!(u8, 1, "{:3}");}
+                NumberSize::TwoBytes => {format_buffer!(u16, 2, "{:5}");}
+                NumberSize::FourBytes => {format_buffer!(u32, 4, "{:10}");}
+                NumberSize::EightBytes => {format_buffer!(u64, 8, "{:20}");}
+            },
+            NumberRepresentation::SignedDecimal => match self.size {
+                NumberSize::OneByte => {format_buffer!(i8, 1, "{:4}");}
+                NumberSize::TwoBytes => {format_buffer!(i16, 2, "{:6}");}
+                NumberSize::FourBytes => {format_buffer!(i32, 4, "{:11}");}
+                NumberSize::EightBytes => {format_buffer!(i64, 8, "{:20}");}
+            },
+            NumberRepresentation::Float => match self.size {
+                NumberSize::FourBytes => {format_buffer!(f32, 4, "{}");}
+                NumberSize::EightBytes => {format_buffer!(f64, 8, "{}");}
+                // Should never be available to pick through user interface
+                _ => return "Error".to_owned()
+            },
         }
     }
 }
@@ -211,7 +213,7 @@ struct MemoryView {
     chars_per_address: usize,
     memory_editor: HexMemoryEditor,
     memory_request: Option<(usize, usize)>,
-    data_view: DataView
+    number_view: NumberView
 }
 
 impl MemoryView {
@@ -278,8 +280,8 @@ impl MemoryView {
         return new_digit.is_some();
     }
 
-    fn render_unit(ui: &mut Ui, unit: &[u8], editor: &mut HexMemoryEditor, address: usize, view: DataView) {
-        let text = view.format(unit);
+    fn render_number(ui: &mut Ui, slice: &[u8], editor: &mut HexMemoryEditor, address: usize, view: NumberView) {
+        let text = view.format(slice);
         ui.text(&text);
         if ui.is_item_hovered() && ui.is_mouse_clicked(0, false) {
             editor.change_address(address, 1, &text);
@@ -298,13 +300,13 @@ impl MemoryView {
         ui.text(str::from_utf8(&copy).unwrap());
     }
 
-    fn render_line(editor: &mut HexMemoryEditor, ui: &mut Ui, address: usize, data: &mut [u8], view: DataView) {
+    fn render_line(editor: &mut HexMemoryEditor, ui: &mut Ui, address: usize, data: &mut [u8], view: NumberView) {
         //TODO: Hide editor when user clicks somewhere else
         MemoryView::render_address(ui, address);
         ui.same_line(0, -1);
-        let bytes_per_unit = view.byte_count();
+        let bytes_per_unit = view.size.byte_count();
         let mut cur_address = address;
-        for unit in data.chunks_mut(bytes_per_unit as usize) {
+        for unit in data.chunks_mut(bytes_per_unit) {
             ui.same_line(0, -1);
             if editor.address == Some(cur_address) {
                 if MemoryView::render_memory_editor(ui, editor, unit) {
@@ -312,53 +314,58 @@ impl MemoryView {
                     editor.text = view.format(unit);
                 }
             } else {
-                MemoryView::render_unit(ui, unit, editor, cur_address, view);
+                MemoryView::render_number(ui, unit, editor, cur_address, view);
             }
             cur_address += bytes_per_unit as usize;
         }
         MemoryView::render_ansi_string(ui, data);
     }
 
-    fn change_data_view(&mut self, view: DataView) {
-        self.data_view = view;
+    fn change_number_view(&mut self, view: NumberView) {
+        self.number_view = view;
         self.memory_editor.set_inactive();
-        self.memory_editor.digit_count = (view.byte_count() * 2) as usize;
+        self.memory_editor.digit_count = view.size.byte_count() * 2;
     }
 
-    fn render_data_view_picker(&mut self, ui: &mut Ui) {
-        if ui.button(self.data_view.as_str(), None) {
-            ui.open_popup("##data_view");
+    fn render_number_view_picker(&mut self, ui: &mut Ui) {
+        let mut current_item = self.number_view.representation.as_usize();
+        let strings = NumberRepresentation::as_strings();
+        if ui.combo("##number_representation", &mut current_item, strings, strings.len(), strings.len()) {
+            println!("Changed to {}", current_item);
         }
-        macro_rules! data_view_menu {
-            (Integer, $name:expr => $($size:ident),+) => {
-                if ui.begin_menu($name, true) {
-                    $(if ui.begin_menu(DataSize::$size.as_str(), true) {
-                        if ui.menu_item("Unsigned", false, true) {
-                            self.change_data_view(DataView::Integer(DataSize::$size, false));
-                        }
-                        if ui.menu_item("Signed", false, true) {
-                            self.change_data_view(DataView::Integer(DataSize::$size, true));
-                        }
-                        ui.end_menu();
-                    })+
-                    ui.end_menu();
-                }
-            };
-            ($variant:ident, $name:expr => $($size:ident),+) => {
-                if ui.begin_menu($name, true) {
-                    $(if ui.menu_item(DataSize::$size.as_str(), false, true) {
-                        self.change_data_view(DataView::$variant(DataSize::$size));
-                    })+
-                    ui.end_menu();
-                }
-            };
-        }
-        if ui.begin_popup("##data_view") {
-            data_view_menu!(Hex, "Hex" => OneByte, TwoBytes, FourBytes, EightBytes);
-            data_view_menu!(Integer, "Integer" => OneByte, TwoBytes, FourBytes, EightBytes);
-            data_view_menu!(Float, "Float" => FourBytes, EightBytes);
-            ui.end_popup();
-        }
+//        if ui.button("Something", None) {
+//            ui.open_popup("##data_view");
+//        }
+//        macro_rules! data_view_menu {
+//            (Integer, $name:expr => $($size:ident),+) => {
+//                if ui.begin_menu($name, true) {
+//                    $(if ui.begin_menu(NumberSize::$size.as_str(), true) {
+//                        if ui.menu_item("Unsigned", false, true) {
+//                            self.change_data_view(DataView::Integer(NumberSize::$size, false));
+//                        }
+//                        if ui.menu_item("Signed", false, true) {
+//                            self.change_data_view(DataView::Integer(NumberSize::$size, true));
+//                        }
+//                        ui.end_menu();
+//                    })+
+//                    ui.end_menu();
+//                }
+//            };
+//            ($variant:ident, $name:expr => $($size:ident),+) => {
+//                if ui.begin_menu($name, true) {
+//                    $(if ui.menu_item(NumberSize::$size.as_str(), false, true) {
+//                        self.change_data_view(DataView::$variant(NumberSize::$size));
+//                    })+
+//                    ui.end_menu();
+//                }
+//            };
+//        }
+//        if ui.begin_popup("##data_view") {
+//            data_view_menu!(Hex, "Hex" => OneByte, TwoBytes, FourBytes, EightBytes);
+//            data_view_menu!(Integer, "Integer" => OneByte, TwoBytes, FourBytes, EightBytes);
+//            data_view_menu!(Float, "Float" => FourBytes, EightBytes);
+//            ui.end_popup();
+//        }
     }
 
     fn render_header(&mut self, ui: &mut Ui) {
@@ -372,7 +379,7 @@ impl MemoryView {
         ui.pop_item_width();
         ui.pop_style_var(1);
         ui.same_line(0, -1);
-        self.render_data_view_picker(ui);
+        self.render_number_view_picker(ui);
         ui.same_line(0, -1);
         let mut is_auto = self.bytes_per_line == 0;
         ui.checkbox("Auto width", &mut is_auto);
@@ -428,7 +435,7 @@ impl View for MemoryView {
             chars_per_address: 10,
             memory_editor: HexMemoryEditor::new(),
             memory_request: Some((START_ADDRESS, BLOCK_SIZE)),
-            data_view: DataView::Hex(DataSize::OneByte),
+            number_view: NumberView {representation: NumberRepresentation::Hex, size: NumberSize::OneByte}
         }
     }
 
@@ -445,21 +452,21 @@ impl View for MemoryView {
                 // Screen space available for int and chars view
                 let screen_left = screen_width - address_size;
                 // Number of chars we can draw
-                let chars_left = (screen_left / glyph_size) as i32;
+                let chars_left = (screen_left / glyph_size) as usize;
+                let unit_size = self.number_view.size.byte_count();
                 // Number of chars we need to draw one unit
-                let unit_size = self.data_view.byte_count();
-                let chars_per_unit = self.data_view.maximum_chars_needed() + 1 + unit_size;
+                let chars_per_unit = self.number_view.maximum_chars_needed() + 1 + unit_size;
                 if chars_left > chars_per_unit {
-                    (chars_left / chars_per_unit * unit_size) as usize
+                    (chars_left / chars_per_unit * unit_size)
                 } else {
-                    unit_size as usize
+                    unit_size
                 }
             },
             _ => self.bytes_per_line,
         };
 
         for line in self.data.chunks_mut(bytes_per_line) {
-            MemoryView::render_line(&mut self.memory_editor, ui, address, line, self.data_view);
+            MemoryView::render_line(&mut self.memory_editor, ui, address, line, self.number_view);
             address += line.len();
         }
 
