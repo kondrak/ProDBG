@@ -9,5 +9,9 @@ pub fn get_text_cursor_index(ui: &Ui, len: usize) -> usize {
     if mouse < left_border {
         return 0;
     }
-    return ((mouse - left_border)/space_per_symbol) as usize;
+    let res = ((mouse - left_border)/space_per_symbol) as usize;
+    if res > len - 1 {
+        return len - 1;
+    }
+    return res;
 }

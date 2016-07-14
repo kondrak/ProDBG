@@ -100,13 +100,13 @@ impl MemoryView {
         let mut cur_address = address;
         for unit in data.chunks_mut(bytes_per_unit) {
             ui.same_line(0, -1);
-            if editor.address == Some(cur_address) {
+            if editor.is_at_address(cur_address) {
                 if editor.render(ui, unit) {
                     // TODO: send change to ProDBG
                 }
             } else {
                 if let Some(index) = MemoryView::render_number(ui, &view.format(unit)) {
-                    editor.set_address(cur_address, index);
+                    editor.set_position(cur_address, index);
                     editor.focus();
                 }
             }
