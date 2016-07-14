@@ -144,6 +144,7 @@ pub struct CPdUI {
 	pub get_id_str_range: extern fn(*const c_char, *const c_char) -> c_uint,
 	pub get_id_ptr: extern fn(*const c_void) -> c_uint,
 	pub text: extern fn(*const c_char),
+	pub text_format: extern fn(*const c_char, c_int),
 	pub text_v: extern fn(*const c_char, c_int),
 	pub text_colored: extern fn(c_uint, *const c_char),
 	pub text_colored_v: extern fn(c_uint, *const c_char, c_int),

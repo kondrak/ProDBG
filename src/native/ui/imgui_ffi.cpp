@@ -456,7 +456,13 @@ static PDID get_id_ptr(const void* ptrId) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-static void text(const char* format, ...) {
+static void text(const char* text) {
+    ImGui::Text("%s", text);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+static void text_format(const char* format, ...) {
     va_list ap;
     va_start(ap, format);
 
@@ -1789,6 +1795,7 @@ static PDUI s_uiFuncs[] =
     // Widgets
 
     text,
+    text_format,
     text_v,
     text_colored,
     text_colored_v,

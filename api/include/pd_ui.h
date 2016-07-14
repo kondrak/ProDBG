@@ -314,7 +314,8 @@ typedef struct PDUI {
 	PDID (*get_id_ptr)(const void* ptrId);
 
 	// Widgets
-	void (*text)(const char* fmt, ...);
+	void (*text)(const char* text);
+	void (*text_format)(const char* fmt, ...);
 	void (*text_v)(const char* fmt, va_list args);
 	void (*text_colored)(const PDColor col, const char* fmt, ...);
 	void (*text_colored_v)(const PDColor col, const char* fmt, va_list args);
