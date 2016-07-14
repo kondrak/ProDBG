@@ -43,6 +43,7 @@ impl DigitMemoryEditor {
 
     pub fn set_number_view(&mut self, view: NumberView) {
         self.view = view;
+        self.position = None;
     }
 
     /// Returns position preceding current. Returns `None` if we're at (0, 0) or `self.position` is
