@@ -403,15 +403,21 @@ impl MemoryView {
     fn render_number_view_picker(&mut self, ui: &mut Ui) {
         let mut current_item = self.number_view.representation.as_usize();
         let strings = NumberRepresentation::as_strings();
+        // TODO: should we calculate needed width from strings?
+        ui.push_item_width(200.0);
         if ui.combo("##number_representation", &mut current_item, strings, strings.len(), strings.len()) {
             self.number_view.change_representation(NumberRepresentation::from_usize(current_item));
         }
+        ui.pop_item_width();
+        ui.same_line(0, -1);
         let available_sizes = self.number_view.representation.get_avaialable_sizes();
         let strings: Vec<&str> = available_sizes.iter().map(|size| size.as_str()).collect();
         current_item = available_sizes.iter().position(|x| *x == self.number_view.size).unwrap_or(0);
+        ui.push_item_width(100.0);
         if ui.combo("##number_size", &mut current_item, &strings, available_sizes.len(), available_sizes.len()) {
             self.number_view.size = *available_sizes.get(current_item).unwrap_or_else(|| available_sizes.first().unwrap());
         }
+        ui.pop_item_width();
     }
 
     fn render_header(&mut self, ui: &mut Ui) {
