@@ -71,14 +71,14 @@ impl DigitMemoryEditor {
         })
     }
 
-    pub fn render(&mut self, ui: &mut Ui, data: &mut[u8]) -> bool {
+    pub fn render(&mut self, ui: &mut Ui, data: &mut[u8]) -> (Option<(usize, usize)>, bool) {
         let address;
         let cursor;
         if let Some((a, c)) = self.position {
             address = a;
             cursor = c;
         } else {
-            return false;
+            return (None, false);
         }
         let text = self.view.format(data);
         let digit_count = text.len();
@@ -100,7 +100,7 @@ impl DigitMemoryEditor {
             ui.set_keyboard_focus_here(0);
             self.should_take_focus = false;
         }
-        let flags = InputTextFlags::CharsHexadecimal as i32|InputTextFlags::NoHorizontalScroll as i32|InputTextFlags::AlwaysInsertMode as i32|InputTextFlags::CallbackAlways as i32;
+        let flags = InputTextFlags::CharsHexadecimal as i32|InputTextFlags::NoHorizontalScroll as i32|InputTextFlags::AutoSelectAll as i32|InputTextFlags::AlwaysInsertMode as i32|InputTextFlags::CallbackAlways as i32;
         let mut should_set_pos_to_start = self.should_set_pos_to_start;
         let mut cursor_pos = 0;
         {
@@ -114,7 +114,12 @@ impl DigitMemoryEditor {
             };
             ui.push_item_width(width);
             ui.push_style_var_vec(ImGuiStyleVar::FramePadding, PDVec2{x: 0.0, y: 0.0});
+            // ids are needed to prevent ImGui from reusing old buffer
+            ui.push_id_usize(address);
+            ui.push_id_usize(cursor);
             ui.input_text("##data", &mut buf, flags, Some(&callback));
+            ui.pop_id();
+            ui.pop_id();
             ui.pop_style_var(1);
             ui.pop_item_width();
         }
@@ -128,7 +133,7 @@ impl DigitMemoryEditor {
 
         if let Some(value) = new_digit {
             let offset = (digit_count - cursor - 1) / 2;
-            data[offset] = if cursor % 2 == 0 {
+            data[offset] = if cursor % 2 == 1 {
                 data[offset] & 0b11110000 | value
             } else {
                 data[offset] & 0b00001111 | (value << 4)
@@ -150,11 +155,6 @@ impl DigitMemoryEditor {
             next_position = self.previous_position();
         }
 
-        if next_position.is_some() {
-            self.position = next_position;
-            self.focus();
-        }
-
-        return new_digit.is_some();
+        return (next_position, new_digit.is_some());
     }
 }

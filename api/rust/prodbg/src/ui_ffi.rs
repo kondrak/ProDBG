@@ -139,7 +139,7 @@ pub struct CPdUI {
 	pub push_id_str_range: extern fn(*const c_char, *const c_char),
 	pub push_id_ptr: extern fn(*const c_void),
 	pub push_id_int: extern fn(c_int),
-	pub pop_id: *mut extern fn () -> c_void,
+	pub pop_id: extern fn () -> c_void,
 	pub get_id_str: extern fn(*const c_char) -> c_uint,
 	pub get_id_str_range: extern fn(*const c_char, *const c_char) -> c_uint,
 	pub get_id_ptr: extern fn(*const c_void) -> c_uint,

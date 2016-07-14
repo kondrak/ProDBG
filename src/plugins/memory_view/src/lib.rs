@@ -92,16 +92,19 @@ impl MemoryView {
         ui.text(str::from_utf8(&copy).unwrap());
     }
 
-    fn render_line(editor: &mut DigitMemoryEditor, ui: &mut Ui, address: usize, data: &mut [u8], view: NumberView) {
+    fn render_line(editor: &mut DigitMemoryEditor, ui: &mut Ui, address: usize, data: &mut [u8], view: NumberView) -> Option<(usize, usize)> {
         //TODO: Hide editor when user clicks somewhere else
         MemoryView::render_address(ui, address);
         ui.same_line(0, -1);
         let bytes_per_unit = view.size.byte_count();
         let mut cur_address = address;
+        let mut next_position = None;
         for unit in data.chunks_mut(bytes_per_unit) {
             ui.same_line(0, -1);
             if editor.is_at_address(cur_address) {
-                if editor.render(ui, unit) {
+                let (np, data_has_changed) = editor.render(ui, unit);
+                next_position = np;
+                if data_has_changed {
                     // TODO: send change to ProDBG
                 }
             } else {
@@ -113,6 +116,7 @@ impl MemoryView {
             cur_address += bytes_per_unit as usize;
         }
         MemoryView::render_ansi_string(ui, data);
+        return next_position;
     }
 
     fn change_number_view(&mut self, view: NumberView) {
@@ -245,9 +249,17 @@ impl View for MemoryView {
             _ => self.bytes_per_line,
         };
 
+        let mut next_editor_position = None;
         for line in self.data.chunks_mut(bytes_per_line) {
-            MemoryView::render_line(&mut self.memory_editor, ui, address, line, self.number_view);
+            let np = MemoryView::render_line(&mut self.memory_editor, ui, address, line, self.number_view);
+            if np.is_some() {
+                next_editor_position = np;
+            }
             address += line.len();
+        }
+        if let Some((address, cursor)) = next_editor_position {
+            self.memory_editor.set_position(address, cursor);
+            self.memory_editor.focus();
         }
 
         if let Some((address, size)) = self.memory_request {

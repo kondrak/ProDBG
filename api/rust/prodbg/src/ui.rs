@@ -528,6 +528,31 @@ impl Ui {
         }
     }
 
+    ///
+    /// Ids
+    ///
+
+    // This version is added since `usize` cannot be converted into pointer in safe Rust.
+    #[inline]
+    pub fn push_id_usize(&self, id: usize) {
+        unsafe { ((*self.api).push_id_ptr)(mem::transmute(id)) }
+    }
+
+    #[inline]
+    pub fn push_id_ptr<T>(&self, id: &T) {
+        unsafe { ((*self.api).push_id_ptr)(mem::transmute(id)) }
+    }
+
+    #[inline]
+    pub fn push_id_int(&self, id: i32) {
+        unsafe { ((*self.api).push_id_int)(id) }
+    }
+
+    #[inline]
+    pub fn pop_id(&self) {
+        unsafe { ((*self.api).pop_id)(); }
+    }
+
     // Text
 
     pub fn text(&self, text: &str) {
