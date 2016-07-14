@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate prodbg_api;
 
-use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, PDVec2, InputTextFlags, Key, ImGuiStyleVar, EventType, InputTextCallbackData};
+use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, PDVec2, InputTextFlags, ImGuiStyleVar, EventType, InputTextCallbackData};
 use std::str;
 
 const BLOCK_SIZE: usize = 1024;
@@ -87,7 +87,7 @@ impl InputText {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum NumberSize {
     OneByte,
     TwoBytes,
@@ -95,6 +95,7 @@ pub enum NumberSize {
     EightBytes,
 }
 
+static NUMBER_SIZE_NAMES: [&'static str; 4] = ["1 byte", "2 bytes", "4 bytes", "8 bytes"];
 impl NumberSize {
     /// String representation of this `NumberSize`
     pub fn as_str(&self) -> &'static str {
@@ -115,24 +116,89 @@ impl NumberSize {
             NumberSize::EightBytes => 8,
         }
     }
+
+    pub fn as_usize(&self) -> usize {
+        match *self {
+            NumberSize::OneByte => 0,
+            NumberSize::TwoBytes => 1,
+            NumberSize::FourBytes => 2,
+            NumberSize::EightBytes => 3,
+        }
+    }
+
+    pub fn from_usize(id: usize) -> NumberSize {
+        match id {
+            0 => NumberSize::OneByte,
+            1 => NumberSize::TwoBytes,
+            2 => NumberSize::FourBytes,
+            3 => NumberSize::EightBytes,
+            _ => NumberSize::FourBytes,
+        }
+    }
+
+    pub fn as_strings() -> &'static [&'static str] {
+        &NUMBER_SIZE_NAMES
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum NumberRepresentation {
-    Hex = 0,
+    Hex,
     UnsignedDecimal,
     SignedDecimal,
     Float,
 }
 
-static NUMBER_REPRESENTATION_STRINGS: [&'static str; 4] = ["Hex", "Signed decimal", "Unsigned decimal", "Float"];
+static NUMBER_REPRESENTATION_NAMES: [&'static str; 4] = ["Hex", "Signed decimal", "Unsigned decimal", "Float"];
+static FLOAT_AVAILABLE_SIZES: [NumberSize; 2] = [NumberSize::FourBytes, NumberSize::EightBytes];
+static OTHER_AVAILABLE_SIZES: [NumberSize; 4] = [NumberSize::OneByte, NumberSize::TwoBytes, NumberSize::FourBytes, NumberSize::EightBytes];
 impl NumberRepresentation {
     pub fn as_usize(&self) -> usize {
-        *self as usize
+        match *self {
+            NumberRepresentation::Hex => 0,
+            NumberRepresentation::UnsignedDecimal => 1,
+            NumberRepresentation::SignedDecimal => 2,
+            NumberRepresentation::Float => 3,
+        }
+    }
+
+    pub fn from_usize(id: usize) -> NumberRepresentation {
+        match id {
+            0 => NumberRepresentation::Hex,
+            1 => NumberRepresentation::UnsignedDecimal,
+            2 => NumberRepresentation::SignedDecimal,
+            3 => NumberRepresentation::Float,
+            _ => NumberRepresentation::Hex,
+        }
+    }
+
+    pub fn can_be_of_size(&self, size: NumberSize) -> bool {
+        match *self {
+            NumberRepresentation::Float => match size {
+                NumberSize::FourBytes => true,
+                NumberSize::EightBytes => true,
+                _ => false,
+            },
+            _ => true
+        }
+    }
+
+    pub fn get_avaialable_sizes(&self) -> &'static [NumberSize] {
+        match *self {
+            NumberRepresentation::Float => &FLOAT_AVAILABLE_SIZES,
+            _ => &OTHER_AVAILABLE_SIZES,
+        }
+    }
+
+    pub fn get_default_size(&self) -> NumberSize {
+        match *self {
+            NumberRepresentation::Float => NumberSize::FourBytes,
+            _ => NumberSize::OneByte,
+        }
     }
 
     pub fn as_strings() -> &'static [&'static str] {
-        &NUMBER_REPRESENTATION_STRINGS
+        &NUMBER_REPRESENTATION_NAMES
     }
 }
 
@@ -202,6 +268,13 @@ impl NumberView {
                 // Should never be available to pick through user interface
                 _ => return "Error".to_owned()
             },
+        }
+    }
+
+    pub fn change_representation(&mut self, representation: NumberRepresentation) {
+        self.representation = representation;
+        if !representation.can_be_of_size(self.size) {
+            self.size = representation.get_default_size();
         }
     }
 }
@@ -331,41 +404,14 @@ impl MemoryView {
         let mut current_item = self.number_view.representation.as_usize();
         let strings = NumberRepresentation::as_strings();
         if ui.combo("##number_representation", &mut current_item, strings, strings.len(), strings.len()) {
-            println!("Changed to {}", current_item);
+            self.number_view.change_representation(NumberRepresentation::from_usize(current_item));
         }
-//        if ui.button("Something", None) {
-//            ui.open_popup("##data_view");
-//        }
-//        macro_rules! data_view_menu {
-//            (Integer, $name:expr => $($size:ident),+) => {
-//                if ui.begin_menu($name, true) {
-//                    $(if ui.begin_menu(NumberSize::$size.as_str(), true) {
-//                        if ui.menu_item("Unsigned", false, true) {
-//                            self.change_data_view(DataView::Integer(NumberSize::$size, false));
-//                        }
-//                        if ui.menu_item("Signed", false, true) {
-//                            self.change_data_view(DataView::Integer(NumberSize::$size, true));
-//                        }
-//                        ui.end_menu();
-//                    })+
-//                    ui.end_menu();
-//                }
-//            };
-//            ($variant:ident, $name:expr => $($size:ident),+) => {
-//                if ui.begin_menu($name, true) {
-//                    $(if ui.menu_item(NumberSize::$size.as_str(), false, true) {
-//                        self.change_data_view(DataView::$variant(NumberSize::$size));
-//                    })+
-//                    ui.end_menu();
-//                }
-//            };
-//        }
-//        if ui.begin_popup("##data_view") {
-//            data_view_menu!(Hex, "Hex" => OneByte, TwoBytes, FourBytes, EightBytes);
-//            data_view_menu!(Integer, "Integer" => OneByte, TwoBytes, FourBytes, EightBytes);
-//            data_view_menu!(Float, "Float" => FourBytes, EightBytes);
-//            ui.end_popup();
-//        }
+        let available_sizes = self.number_view.representation.get_avaialable_sizes();
+        let strings: Vec<&str> = available_sizes.iter().map(|size| size.as_str()).collect();
+        current_item = available_sizes.iter().position(|x| *x == self.number_view.size).unwrap_or(0);
+        if ui.combo("##number_size", &mut current_item, &strings, available_sizes.len(), available_sizes.len()) {
+            self.number_view.size = *available_sizes.get(current_item).unwrap_or_else(|| available_sizes.first().unwrap());
+        }
     }
 
     fn render_header(&mut self, ui: &mut Ui) {
