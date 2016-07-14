@@ -2,52 +2,16 @@
 extern crate prodbg_api;
 
 mod number_view;
+mod digit_memory_editor;
 
-use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, PDVec2, InputTextFlags, ImGuiStyleVar, EventType, InputTextCallbackData};
+use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, PDVec2, InputTextFlags, ImGuiStyleVar, EventType};
 use std::str;
 use number_view::{NumberView, NumberRepresentation, NumberSize};
+use digit_memory_editor::DigitMemoryEditor;
 
 const BLOCK_SIZE: usize = 1024;
 // ProDBG does not respond to requests with low addresses.
 const START_ADDRESS: usize = 0xf0000;
-
-struct HexMemoryEditor {
-    address: Option<usize>, // Address for first digit
-    digit_count: usize, // Amount of digits edited
-    cursor: usize, // Position of digit edited (0 = lowest address)
-    buf: [u8; 2], // Buffer for ImGui. Only one digit allowed
-    text: String, // Text representation of buffer
-    should_take_focus: bool, // Needed since we cannot change focus in current frame
-    should_set_pos_to_start: bool, // Needed since we cannot change cursor position in next frame
-}
-
-impl HexMemoryEditor {
-    pub fn new() -> HexMemoryEditor {
-        HexMemoryEditor {
-            address: None,
-            digit_count: 2,
-            cursor: 0,
-            buf: [0; 2],
-            text: String::new(),
-            should_take_focus: false,
-            should_set_pos_to_start: false,
-        }
-    }
-
-    pub fn change_address(&mut self, address: usize, cursor: usize, data: &str) {
-        self.address = Some(address);
-        self.cursor = cursor;
-        self.text = data.to_owned();
-        self.buf[0] = data.as_bytes()[cursor];
-        self.buf[1] = 0;
-        self.should_take_focus = true;
-        self.should_set_pos_to_start = true;
-    }
-
-    pub fn set_inactive(&mut self) {
-        self.address = None;
-    }
-}
 
 struct InputText {
     // TODO: What buffer do we really need for address?
@@ -95,7 +59,7 @@ struct MemoryView {
     start_address: InputText,
     bytes_per_line: usize,
     chars_per_address: usize,
-    memory_editor: HexMemoryEditor,
+    memory_editor: DigitMemoryEditor,
     memory_request: Option<(usize, usize)>,
     number_view: NumberView
 }
@@ -105,70 +69,12 @@ impl MemoryView {
         ui.text(&format!("{:#010x}", address));
     }
 
-    fn render_memory_editor(ui: &mut Ui, editor: &mut HexMemoryEditor, unit: &mut [u8]) -> bool {
-        ui.push_style_var_vec(ImGuiStyleVar::ItemSpacing, PDVec2{x: 0.0, y: 0.0});
-        // TODO: this can cause panic if text somehow non-ASCII. Can we change this somehow?
-        if editor.cursor > 0 {
-            let left = &editor.text[0..editor.cursor];
-            ui.text(left);
-        }
-
-        let mut new_digit = None;
-        let width = ui.calc_text_size("f", 0).0;
-        if editor.should_take_focus {
-            ui.set_keyboard_focus_here(0);
-            editor.should_take_focus = false;
-        }
-        let flags = InputTextFlags::CharsHexadecimal as i32|InputTextFlags::NoHorizontalScroll as i32|InputTextFlags::AlwaysInsertMode as i32|InputTextFlags::CallbackAlways as i32;
-        let mut should_set_pos_to_start = editor.should_set_pos_to_start;
-        let mut cursor_pos = 0;
-        {
-            let callback = |mut data: InputTextCallbackData| {
-                if should_set_pos_to_start {
-                    data.set_cursor_pos(0);
-                    should_set_pos_to_start = false;
-                } else {
-                    cursor_pos = data.get_cursor_pos();
-                }
-            };
-            ui.same_line(0, -1);
-            ui.push_item_width(width);
-            ui.push_style_var_vec(ImGuiStyleVar::FramePadding, PDVec2{x: 0.0, y: 0.0});
-            ui.input_text("##data", &mut editor.buf, flags, Some(&callback));
-            ui.pop_style_var(1);
-            ui.pop_item_width();
-        }
-        if cursor_pos > 0 {
-            let text = String::from_utf8(editor.buf.iter().take(1).map(|x| *x).collect()).unwrap();
-            new_digit = Some(u8::from_str_radix(&text, 16).unwrap());
-            editor.set_inactive();
-        }
-        editor.should_set_pos_to_start = should_set_pos_to_start;
-
-        if let Some(value) = new_digit {
-            let offset = (editor.digit_count - editor.cursor) / 2;
-            unit[offset] = if editor.cursor % 2 == 0 {
-                unit[offset] & 0b00001111 | (value << 4)
-            } else {
-                unit[offset] & 0b11110000 | value
-            };
-        }
-
-        if editor.cursor < editor.digit_count {
-            ui.same_line(0, -1);
-            let right = &editor.text[editor.cursor + 1..editor.digit_count];
-            ui.text(right);
-        }
-
-        ui.pop_style_var(1);
-        return new_digit.is_some();
-    }
-
-    fn render_number(ui: &mut Ui, slice: &[u8], editor: &mut HexMemoryEditor, address: usize, view: NumberView) {
-        let text = view.format(slice);
-        ui.text(&text);
+    fn render_number(ui: &mut Ui, text: &str) -> Option<usize> {
+        ui.text(text);
         if ui.is_item_hovered() && ui.is_mouse_clicked(0, false) {
-            editor.change_address(address, 1, &text);
+            return Some(1);
+        } else {
+            return None;
         }
     }
 
@@ -184,7 +90,7 @@ impl MemoryView {
         ui.text(str::from_utf8(&copy).unwrap());
     }
 
-    fn render_line(editor: &mut HexMemoryEditor, ui: &mut Ui, address: usize, data: &mut [u8], view: NumberView) {
+    fn render_line(editor: &mut DigitMemoryEditor, ui: &mut Ui, address: usize, data: &mut [u8], view: NumberView) {
         //TODO: Hide editor when user clicks somewhere else
         MemoryView::render_address(ui, address);
         ui.same_line(0, -1);
@@ -193,12 +99,14 @@ impl MemoryView {
         for unit in data.chunks_mut(bytes_per_unit) {
             ui.same_line(0, -1);
             if editor.address == Some(cur_address) {
-                if MemoryView::render_memory_editor(ui, editor, unit) {
+                if editor.render(ui, unit) {
                     // TODO: send change to ProDBG
-                    editor.text = view.format(unit);
                 }
             } else {
-                MemoryView::render_number(ui, unit, editor, cur_address, view);
+                if let Some(index) = MemoryView::render_number(ui, &view.format(unit)) {
+                    editor.set_address(cur_address, index);
+                    editor.focus();
+                }
             }
             cur_address += bytes_per_unit as usize;
         }
@@ -207,28 +115,34 @@ impl MemoryView {
 
     fn change_number_view(&mut self, view: NumberView) {
         self.number_view = view;
-        self.memory_editor.set_inactive();
-        self.memory_editor.digit_count = view.size.byte_count() * 2;
+        self.memory_editor.set_number_view(view);
     }
 
     fn render_number_view_picker(&mut self, ui: &mut Ui) {
-        let mut current_item = self.number_view.representation.as_usize();
+        let mut view = self.number_view;
+        let mut view_is_changed = false;
+        let mut current_item = view.representation.as_usize();
         let strings = NumberRepresentation::names();
         // TODO: should we calculate needed width from strings?
         ui.push_item_width(200.0);
         if ui.combo("##number_representation", &mut current_item, strings, strings.len(), strings.len()) {
-            self.number_view.change_representation(NumberRepresentation::from_usize(current_item));
+            view.change_representation(NumberRepresentation::from_usize(current_item));
+            view_is_changed = true;
         }
         ui.pop_item_width();
         ui.same_line(0, -1);
-        let available_sizes = self.number_view.representation.get_avaialable_sizes();
+        let available_sizes = view.representation.get_avaialable_sizes();
         let strings: Vec<&str> = available_sizes.iter().map(|size| size.as_str()).collect();
-        current_item = available_sizes.iter().position(|x| *x == self.number_view.size).unwrap_or(0);
+        current_item = available_sizes.iter().position(|x| *x == view.size).unwrap_or(0);
         ui.push_item_width(100.0);
         if ui.combo("##number_size", &mut current_item, &strings, available_sizes.len(), available_sizes.len()) {
-            self.number_view.size = *available_sizes.get(current_item).unwrap_or_else(|| available_sizes.first().unwrap());
+            view.size = *available_sizes.get(current_item).unwrap_or_else(|| available_sizes.first().unwrap());
+            view_is_changed = true;
         }
         ui.pop_item_width();
+        if view_is_changed {
+            self.change_number_view(view);
+        }
     }
 
     fn render_header(&mut self, ui: &mut Ui) {
@@ -291,14 +205,15 @@ impl MemoryView {
 
 impl View for MemoryView {
     fn new(_: &Ui, _: &Service) -> Self {
+        let view = NumberView {representation: NumberRepresentation::Hex, size: NumberSize::OneByte};
         MemoryView {
             data: vec![0; BLOCK_SIZE],
             start_address: InputText::new(),
             bytes_per_line: 8,
             chars_per_address: 10,
-            memory_editor: HexMemoryEditor::new(),
+            memory_editor: DigitMemoryEditor::new(view),
             memory_request: Some((START_ADDRESS, BLOCK_SIZE)),
-            number_view: NumberView {representation: NumberRepresentation::Hex, size: NumberSize::OneByte}
+            number_view: view,
         }
     }
 
