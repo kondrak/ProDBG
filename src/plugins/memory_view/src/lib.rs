@@ -1,8 +1,11 @@
 #[macro_use]
 extern crate prodbg_api;
 
+mod number_view;
+
 use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, PDVec2, InputTextFlags, ImGuiStyleVar, EventType, InputTextCallbackData};
 use std::str;
+use number_view::{NumberView, NumberRepresentation, NumberSize};
 
 const BLOCK_SIZE: usize = 1024;
 // ProDBG does not respond to requests with low addresses.
@@ -87,198 +90,6 @@ impl InputText {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum NumberSize {
-    OneByte,
-    TwoBytes,
-    FourBytes,
-    EightBytes,
-}
-
-static NUMBER_SIZE_NAMES: [&'static str; 4] = ["1 byte", "2 bytes", "4 bytes", "8 bytes"];
-impl NumberSize {
-    /// String representation of this `NumberSize`
-    pub fn as_str(&self) -> &'static str {
-        match *self {
-            NumberSize::OneByte => "1 byte",
-            NumberSize::TwoBytes => "2 bytes",
-            NumberSize::FourBytes => "4 bytes",
-            NumberSize::EightBytes => "8 bytes",
-        }
-    }
-
-    /// Number of bytes represented by this `NumberSize`
-    pub fn byte_count(&self) -> usize {
-        match *self {
-            NumberSize::OneByte => 1,
-            NumberSize::TwoBytes => 2,
-            NumberSize::FourBytes => 4,
-            NumberSize::EightBytes => 8,
-        }
-    }
-
-    pub fn as_usize(&self) -> usize {
-        match *self {
-            NumberSize::OneByte => 0,
-            NumberSize::TwoBytes => 1,
-            NumberSize::FourBytes => 2,
-            NumberSize::EightBytes => 3,
-        }
-    }
-
-    pub fn from_usize(id: usize) -> NumberSize {
-        match id {
-            0 => NumberSize::OneByte,
-            1 => NumberSize::TwoBytes,
-            2 => NumberSize::FourBytes,
-            3 => NumberSize::EightBytes,
-            _ => NumberSize::FourBytes,
-        }
-    }
-
-    pub fn as_strings() -> &'static [&'static str] {
-        &NUMBER_SIZE_NAMES
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum NumberRepresentation {
-    Hex,
-    UnsignedDecimal,
-    SignedDecimal,
-    Float,
-}
-
-static NUMBER_REPRESENTATION_NAMES: [&'static str; 4] = ["Hex", "Signed decimal", "Unsigned decimal", "Float"];
-static FLOAT_AVAILABLE_SIZES: [NumberSize; 2] = [NumberSize::FourBytes, NumberSize::EightBytes];
-static OTHER_AVAILABLE_SIZES: [NumberSize; 4] = [NumberSize::OneByte, NumberSize::TwoBytes, NumberSize::FourBytes, NumberSize::EightBytes];
-impl NumberRepresentation {
-    pub fn as_usize(&self) -> usize {
-        match *self {
-            NumberRepresentation::Hex => 0,
-            NumberRepresentation::UnsignedDecimal => 1,
-            NumberRepresentation::SignedDecimal => 2,
-            NumberRepresentation::Float => 3,
-        }
-    }
-
-    pub fn from_usize(id: usize) -> NumberRepresentation {
-        match id {
-            0 => NumberRepresentation::Hex,
-            1 => NumberRepresentation::UnsignedDecimal,
-            2 => NumberRepresentation::SignedDecimal,
-            3 => NumberRepresentation::Float,
-            _ => NumberRepresentation::Hex,
-        }
-    }
-
-    pub fn can_be_of_size(&self, size: NumberSize) -> bool {
-        match *self {
-            NumberRepresentation::Float => match size {
-                NumberSize::FourBytes => true,
-                NumberSize::EightBytes => true,
-                _ => false,
-            },
-            _ => true
-        }
-    }
-
-    pub fn get_avaialable_sizes(&self) -> &'static [NumberSize] {
-        match *self {
-            NumberRepresentation::Float => &FLOAT_AVAILABLE_SIZES,
-            _ => &OTHER_AVAILABLE_SIZES,
-        }
-    }
-
-    pub fn get_default_size(&self) -> NumberSize {
-        match *self {
-            NumberRepresentation::Float => NumberSize::FourBytes,
-            _ => NumberSize::OneByte,
-        }
-    }
-
-    pub fn as_strings() -> &'static [&'static str] {
-        &NUMBER_REPRESENTATION_NAMES
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct NumberView {
-    representation: NumberRepresentation,
-    size: NumberSize,
-    // TODO: add endianness
-}
-
-impl NumberView {
-    /// Maximum number of characters needed to show number
-    // TODO: change to calculation from MAX/MIN when `const fn` is in stable Rust
-    pub fn maximum_chars_needed(&self) -> usize {
-        match self.representation {
-            NumberRepresentation::Hex => self.size.byte_count() * 2,
-            NumberRepresentation::UnsignedDecimal => match self.size {
-                NumberSize::OneByte => 3,
-                NumberSize::TwoBytes => 5,
-                NumberSize::FourBytes => 10,
-                NumberSize::EightBytes => 20,
-            },
-            NumberRepresentation::SignedDecimal => match self.size {
-                NumberSize::TwoBytes => 6,
-                NumberSize::OneByte => 4,
-                NumberSize::FourBytes => 11,
-                NumberSize::EightBytes => 20,
-            },
-            // TODO: pick a proper representation for floats
-            NumberRepresentation::Float => self.size.byte_count() * 2,
-        }
-    }
-
-    pub fn format(&self, buffer: &[u8]) -> String {
-        macro_rules! format_buffer {
-            ($data_type:ty, $len:expr, $format:expr) => {
-                let mut buf_copy = [0; $len];
-                buf_copy.copy_from_slice(&buffer[0..$len]);
-                unsafe {
-                    let num: $data_type = std::mem::transmute(buf_copy);
-                    return format!($format, num);
-                }
-            };
-        }
-        match self.representation {
-            NumberRepresentation::Hex => match self.size {
-                NumberSize::OneByte => {format_buffer!(u8, 1, "{:02x}");}
-                NumberSize::TwoBytes => {format_buffer!(u16, 2, "{:04x}");}
-                NumberSize::FourBytes => {format_buffer!(u32, 4, "{:08x}");}
-                NumberSize::EightBytes => {format_buffer!(u64, 8, "{:016x}");}
-            },
-            NumberRepresentation::UnsignedDecimal => match self.size {
-                NumberSize::OneByte => {format_buffer!(u8, 1, "{:3}");}
-                NumberSize::TwoBytes => {format_buffer!(u16, 2, "{:5}");}
-                NumberSize::FourBytes => {format_buffer!(u32, 4, "{:10}");}
-                NumberSize::EightBytes => {format_buffer!(u64, 8, "{:20}");}
-            },
-            NumberRepresentation::SignedDecimal => match self.size {
-                NumberSize::OneByte => {format_buffer!(i8, 1, "{:4}");}
-                NumberSize::TwoBytes => {format_buffer!(i16, 2, "{:6}");}
-                NumberSize::FourBytes => {format_buffer!(i32, 4, "{:11}");}
-                NumberSize::EightBytes => {format_buffer!(i64, 8, "{:20}");}
-            },
-            NumberRepresentation::Float => match self.size {
-                NumberSize::FourBytes => {format_buffer!(f32, 4, "{}");}
-                NumberSize::EightBytes => {format_buffer!(f64, 8, "{}");}
-                // Should never be available to pick through user interface
-                _ => return "Error".to_owned()
-            },
-        }
-    }
-
-    pub fn change_representation(&mut self, representation: NumberRepresentation) {
-        self.representation = representation;
-        if !representation.can_be_of_size(self.size) {
-            self.size = representation.get_default_size();
-        }
-    }
-}
-
 struct MemoryView {
     data: Vec<u8>,
     start_address: InputText,
@@ -296,7 +107,7 @@ impl MemoryView {
 
     fn render_memory_editor(ui: &mut Ui, editor: &mut HexMemoryEditor, unit: &mut [u8]) -> bool {
         ui.push_style_var_vec(ImGuiStyleVar::ItemSpacing, PDVec2{x: 0.0, y: 0.0});
-        // TODO: this can cause panic if text somewhy non-ASCII. Can we change this somehow?
+        // TODO: this can cause panic if text somehow non-ASCII. Can we change this somehow?
         if editor.cursor > 0 {
             let left = &editor.text[0..editor.cursor];
             ui.text(left);
@@ -402,7 +213,7 @@ impl MemoryView {
 
     fn render_number_view_picker(&mut self, ui: &mut Ui) {
         let mut current_item = self.number_view.representation.as_usize();
-        let strings = NumberRepresentation::as_strings();
+        let strings = NumberRepresentation::names();
         // TODO: should we calculate needed width from strings?
         ui.push_item_width(200.0);
         if ui.combo("##number_representation", &mut current_item, strings, strings.len(), strings.len()) {
