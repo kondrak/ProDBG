@@ -10,7 +10,29 @@ use std;
 pub struct NumberView {
     pub representation: NumberRepresentation,
     pub size: NumberSize,
-    // TODO: add endianness
+    pub endianness: Endianness
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum NumberRepresentation {
+    Hex,
+    UnsignedDecimal,
+    SignedDecimal,
+    Float,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum NumberSize {
+    OneByte,
+    TwoBytes,
+    FourBytes,
+    EightBytes,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Endianness {
+    Little,
+    Big,
 }
 
 impl NumberView {
@@ -42,10 +64,26 @@ impl NumberView {
     /// Panics if slice of memory is less than number size.
     pub fn format(&self, buffer: &[u8]) -> String {
         macro_rules! format_buffer {
+            ($data_type:ty, $len:expr, $endianness:expr, $format:expr) => {
+                let mut buf_copy = [0; $len];
+                buf_copy.copy_from_slice(&buffer[0..$len]);
+                unsafe {
+                    // Cannot use transmute_copy here as it requires argument with constant size
+                    // known at compile-time
+                    let mut num: $data_type = std::mem::transmute(buf_copy);
+                    num = match $endianness {
+                        Endianness::Little => num.to_le(),
+                        Endianness::Big => num.to_be(),
+                    };
+                    return format!($format, num);
+                }
+            };
             ($data_type:ty, $len:expr, $format:expr) => {
                 let mut buf_copy = [0; $len];
                 buf_copy.copy_from_slice(&buffer[0..$len]);
                 unsafe {
+                    // Cannot use transmute_copy here as it requires argument with constant size
+                    // known at compile-time
                     let num: $data_type = std::mem::transmute(buf_copy);
                     return format!($format, num);
                 }
@@ -53,22 +91,22 @@ impl NumberView {
         }
         match self.representation {
             NumberRepresentation::Hex => match self.size {
-                NumberSize::OneByte => {format_buffer!(u8, 1, "{:02x}");}
-                NumberSize::TwoBytes => {format_buffer!(u16, 2, "{:04x}");}
-                NumberSize::FourBytes => {format_buffer!(u32, 4, "{:08x}");}
-                NumberSize::EightBytes => {format_buffer!(u64, 8, "{:016x}");}
+                NumberSize::OneByte => {format_buffer!(u8, 1, self.endianness, "{:02x}");}
+                NumberSize::TwoBytes => {format_buffer!(u16, 2, self.endianness, "{:04x}");}
+                NumberSize::FourBytes => {format_buffer!(u32, 4, self.endianness, "{:08x}");}
+                NumberSize::EightBytes => {format_buffer!(u64, 8, self.endianness, "{:016x}");}
             },
             NumberRepresentation::UnsignedDecimal => match self.size {
-                NumberSize::OneByte => {format_buffer!(u8, 1, "{:3}");}
-                NumberSize::TwoBytes => {format_buffer!(u16, 2, "{:5}");}
-                NumberSize::FourBytes => {format_buffer!(u32, 4, "{:10}");}
-                NumberSize::EightBytes => {format_buffer!(u64, 8, "{:20}");}
+                NumberSize::OneByte => {format_buffer!(u8, 1, self.endianness, "{:3}");}
+                NumberSize::TwoBytes => {format_buffer!(u16, 2, self.endianness, "{:5}");}
+                NumberSize::FourBytes => {format_buffer!(u32, 4, self.endianness, "{:10}");}
+                NumberSize::EightBytes => {format_buffer!(u64, 8, self.endianness, "{:20}");}
             },
             NumberRepresentation::SignedDecimal => match self.size {
-                NumberSize::OneByte => {format_buffer!(i8, 1, "{:4}");}
-                NumberSize::TwoBytes => {format_buffer!(i16, 2, "{:6}");}
-                NumberSize::FourBytes => {format_buffer!(i32, 4, "{:11}");}
-                NumberSize::EightBytes => {format_buffer!(i64, 8, "{:20}");}
+                NumberSize::OneByte => {format_buffer!(i8, 1, self.endianness, "{:4}");}
+                NumberSize::TwoBytes => {format_buffer!(i16, 2, self.endianness, "{:6}");}
+                NumberSize::FourBytes => {format_buffer!(i32, 4, self.endianness, "{:11}");}
+                NumberSize::EightBytes => {format_buffer!(i64, 8, self.endianness, "{:20}");}
             },
             NumberRepresentation::Float => match self.size {
                 NumberSize::FourBytes => {format_buffer!(f32, 4, "{}");}
@@ -87,14 +125,6 @@ impl NumberView {
             self.size = representation.get_default_size();
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum NumberSize {
-    OneByte,
-    TwoBytes,
-    FourBytes,
-    EightBytes,
 }
 
 impl NumberSize {
@@ -119,15 +149,7 @@ impl NumberSize {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum NumberRepresentation {
-    Hex,
-    UnsignedDecimal,
-    SignedDecimal,
-    Float,
-}
-
-static NUMBER_REPRESENTATION_NAMES: [&'static str; 4] = ["Hex", "Signed decimal", "Unsigned decimal", "Float"];
+static NUMBER_REPRESENTATION_NAMES: [&'static str; 4] = ["Hex", "Unsigned decimal", "Signed decimal", "Float"];
 static FLOAT_AVAILABLE_SIZES: [NumberSize; 2] = [NumberSize::FourBytes, NumberSize::EightBytes];
 static OTHER_AVAILABLE_SIZES: [NumberSize; 4] = [NumberSize::OneByte, NumberSize::TwoBytes, NumberSize::FourBytes, NumberSize::EightBytes];
 impl NumberRepresentation {
@@ -189,5 +211,48 @@ impl NumberRepresentation {
     /// `NumberRepresentation::as_usize`.
     pub fn names() -> &'static [&'static str] {
         &NUMBER_REPRESENTATION_NAMES
+    }
+}
+
+static ENDIANNESS_NAMES: [&'static str; 2] = ["Little-endian", "Big-endian"];
+impl Endianness {
+    // TODO: make this example work as test. Could not run it as a test using `cargo test`
+    /// Converts this endianness into index, which matches `Endianness::names()`
+    /// # Examples
+    /// ```
+    /// use Endianness;
+    /// let names = Endianness::names();
+    /// assert_eq!("Little-endian", names[Endianness::Little.as_usize()]);
+    /// ```
+    pub fn as_usize(&self) -> usize {
+        match *self {
+            Endianness::Little => 0,
+            Endianness::Big => 1,
+        }
+    }
+
+    /// Converts index into `Endianness`. Uses default endianness for target build if index does
+    /// not match any.
+    pub fn from_usize(id: usize) -> Endianness {
+        match id {
+            0 => Endianness::Little,
+            1 => Endianness::Big,
+            _ => Endianness::default(),
+        }
+    }
+
+    /// Returns names for all possible representations. Index matches `Endianness::as_usize`.
+    pub fn names() -> &'static [&'static str] {
+        &ENDIANNESS_NAMES
+    }
+}
+
+impl Default for Endianness {
+    fn default() -> Endianness {
+        if cfg!(target_endian = "little") {
+            Endianness::Little
+        } else {
+            Endianness::Big
+        }
     }
 }

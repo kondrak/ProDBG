@@ -4,7 +4,7 @@
 
 use std;
 use prodbg_api::{Ui, PDVec2, InputTextFlags, ImGuiStyleVar, InputTextCallbackData, Key};
-use number_view::NumberView;
+use number_view::{NumberView, Endianness};
 use helper::get_text_cursor_index;
 
 pub struct DigitMemoryEditor {
@@ -43,6 +43,7 @@ impl DigitMemoryEditor {
 
     pub fn set_number_view(&mut self, view: NumberView) {
         self.view = view;
+        // TODO: should we recalculate position instead of dropping it?
         self.position = None;
     }
 
@@ -132,7 +133,10 @@ impl DigitMemoryEditor {
         }
 
         if let Some(value) = new_digit {
-            let offset = (digit_count - cursor - 1) / 2;
+            let offset = match self.view.endianness {
+                Endianness::Little => (digit_count - cursor - 1) / 2,
+                Endianness::Big => cursor / 2,
+            };
             data[offset] = if cursor % 2 == 1 {
                 data[offset] & 0b11110000 | value
             } else {

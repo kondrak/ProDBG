@@ -7,7 +7,7 @@ mod helper;
 
 use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, PDVec2, InputTextFlags, ImGuiStyleVar, EventType};
 use std::str;
-use number_view::{NumberView, NumberRepresentation, NumberSize};
+use number_view::{NumberView, NumberRepresentation, NumberSize, Endianness};
 use digit_memory_editor::DigitMemoryEditor;
 use helper::get_text_cursor_index;
 
@@ -109,8 +109,10 @@ impl MemoryView {
                 }
             } else {
                 if let Some(index) = MemoryView::render_number(ui, &view.format(unit)) {
-                    editor.set_position(cur_address, index);
-                    editor.focus();
+                    if view.representation == NumberRepresentation::Hex {
+                        editor.set_position(cur_address, index);
+                        editor.focus();
+                    }
                 }
             }
             cur_address += bytes_per_unit as usize;
@@ -121,14 +123,19 @@ impl MemoryView {
 
     fn change_number_view(&mut self, view: NumberView) {
         self.number_view = view;
-        self.memory_editor.set_number_view(view);
+        match view.representation {
+            NumberRepresentation::Hex => self.memory_editor.set_number_view(view),
+            _ => self.memory_editor.position = None,
+        }
     }
 
     fn render_number_view_picker(&mut self, ui: &mut Ui) {
         let mut view = self.number_view;
         let mut view_is_changed = false;
-        let mut current_item = view.representation.as_usize();
+        let mut current_item;
+
         let strings = NumberRepresentation::names();
+        current_item = view.representation.as_usize();
         // TODO: should we calculate needed width from strings?
         ui.push_item_width(200.0);
         if ui.combo("##number_representation", &mut current_item, strings, strings.len(), strings.len()) {
@@ -136,16 +143,28 @@ impl MemoryView {
             view_is_changed = true;
         }
         ui.pop_item_width();
-        ui.same_line(0, -1);
+
         let available_sizes = view.representation.get_avaialable_sizes();
         let strings: Vec<&str> = available_sizes.iter().map(|size| size.as_str()).collect();
         current_item = available_sizes.iter().position(|x| *x == view.size).unwrap_or(0);
+        ui.same_line(0, -1);
         ui.push_item_width(100.0);
         if ui.combo("##number_size", &mut current_item, &strings, available_sizes.len(), available_sizes.len()) {
             view.size = *available_sizes.get(current_item).unwrap_or_else(|| available_sizes.first().unwrap());
             view_is_changed = true;
         }
         ui.pop_item_width();
+
+        let strings = Endianness::names();
+        current_item = view.endianness.as_usize();
+        ui.same_line(0, -1);
+        ui.push_item_width(200.0);
+        if ui.combo("##endianness", &mut current_item, strings, strings.len(), strings.len()) {
+            view.endianness = Endianness::from_usize(current_item);
+            view_is_changed = true;
+        }
+        ui.pop_item_width();
+
         if view_is_changed {
             self.change_number_view(view);
         }
@@ -211,7 +230,11 @@ impl MemoryView {
 
 impl View for MemoryView {
     fn new(_: &Ui, _: &Service) -> Self {
-        let view = NumberView {representation: NumberRepresentation::Hex, size: NumberSize::OneByte};
+        let view = NumberView {
+            representation: NumberRepresentation::Hex,
+            size: NumberSize::OneByte,
+            endianness: Endianness::default(),
+        };
         MemoryView {
             data: vec![0; BLOCK_SIZE],
             start_address: InputText::new(),
