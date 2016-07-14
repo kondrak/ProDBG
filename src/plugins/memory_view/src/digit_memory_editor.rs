@@ -5,6 +5,7 @@
 use std;
 use prodbg_api::{Ui, PDVec2, InputTextFlags, ImGuiStyleVar, InputTextCallbackData};
 use number_view::NumberView;
+use helper::get_text_cursor_index;
 
 pub struct DigitMemoryEditor {
     // TODO: move cursor into Option
@@ -47,12 +48,16 @@ impl DigitMemoryEditor {
     pub fn render(&mut self, ui: &mut Ui, data: &mut[u8]) -> bool {
         let text = self.view.format(data);
         let digit_count = text.len();
+        let mut next_cursor = None;
         let mut buf = [text.as_str().as_bytes()[self.cursor], 0];
         ui.push_style_var_vec(ImGuiStyleVar::ItemSpacing, PDVec2{x: 0.0, y: 0.0});
         if self.cursor > 0 {
             let left = &text[0..self.cursor];
             ui.text(left);
             ui.same_line(0, -1);
+            if ui.is_item_hovered() && ui.is_mouse_clicked(0, false) {
+                next_cursor = Some(get_text_cursor_index(ui, left.len()));
+            }
         }
 
         let mut new_digit = None;
@@ -100,9 +105,16 @@ impl DigitMemoryEditor {
             ui.same_line(0, -1);
             let right = &text[self.cursor + 1..digit_count];
             ui.text(right);
+            if ui.is_item_hovered() && ui.is_mouse_clicked(0, false) {
+                next_cursor = Some(self.cursor + 1 + get_text_cursor_index(ui, right.len()));
+            }
         }
 
         ui.pop_style_var(1);
+
+        if let Some(cursor) = next_cursor {
+            self.cursor = cursor;
+        }
         return new_digit.is_some();
     }
 }

@@ -3,11 +3,13 @@ extern crate prodbg_api;
 
 mod number_view;
 mod digit_memory_editor;
+mod helper;
 
 use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, PDVec2, InputTextFlags, ImGuiStyleVar, EventType};
 use std::str;
 use number_view::{NumberView, NumberRepresentation, NumberSize};
 use digit_memory_editor::DigitMemoryEditor;
+use helper::get_text_cursor_index;
 
 const BLOCK_SIZE: usize = 1024;
 // ProDBG does not respond to requests with low addresses.
@@ -72,7 +74,7 @@ impl MemoryView {
     fn render_number(ui: &mut Ui, text: &str) -> Option<usize> {
         ui.text(text);
         if ui.is_item_hovered() && ui.is_mouse_clicked(0, false) {
-            return Some(1);
+            return Some(get_text_cursor_index(ui, text.len()));
         } else {
             return None;
         }

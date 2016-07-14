@@ -431,6 +431,21 @@ impl Ui {
     }
 
     #[inline]
+    pub fn get_item_rect_min(&self) -> PDVec2 {
+        unsafe { ((*self.api).get_item_rect_min)() }
+    }
+
+    #[inline]
+    pub fn get_item_rect_max(&self) -> PDVec2 {
+        unsafe { ((*self.api).get_item_rect_max)() }
+    }
+
+    #[inline]
+    pub fn get_item_rect_size(&self) -> PDVec2 {
+        unsafe { ((*self.api).get_item_rect_size)() }
+    }
+
+    #[inline]
     pub fn is_mouse_clicked(&self, button: i32, repeat: bool) -> bool {
         unsafe { ((*self.api).is_mouse_clicked)(button, true_is_1!(repeat)) != 0}
     }
@@ -652,6 +667,14 @@ impl Ui {
 
 	pub fn is_key_released(&self, key: Key) -> bool {
         unsafe { ((*self.api).is_key_released)(key as i32) == 1 }
+    }
+
+    ///
+    /// Mouse support
+    ///
+
+	pub fn get_mouse_pos(&self) -> PDVec2 {
+        unsafe { ((*self.api).get_mouse_pos)() }
     }
 
     ///
