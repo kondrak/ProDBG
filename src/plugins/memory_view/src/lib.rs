@@ -92,7 +92,14 @@ impl MemoryView {
         ui.text(str::from_utf8(&copy).unwrap());
     }
 
-    fn render_line(editor: &mut DigitMemoryEditor, ui: &mut Ui, address: usize, data: &mut [u8], view: NumberView) -> Option<(usize, usize)> {
+    fn set_memory(writer: &mut Writer, address: usize, data: &[u8]) {
+        writer.event_begin(EventType::UpdateMemory as u16);
+        writer.write_u64("address", address as u64);
+        writer.write_data("data", data);
+        writer.event_end();
+    }
+
+    fn render_line(editor: &mut DigitMemoryEditor, ui: &mut Ui, address: usize, data: &mut [u8], view: NumberView, writer: &mut Writer) -> Option<(usize, usize)> {
         //TODO: Hide editor when user clicks somewhere else
         MemoryView::render_address(ui, address);
         ui.same_line(0, -1);
@@ -105,7 +112,7 @@ impl MemoryView {
                 let (np, data_has_changed) = editor.render(ui, unit);
                 next_position = np;
                 if data_has_changed {
-                    // TODO: send change to ProDBG
+                    MemoryView::set_memory(writer, cur_address, unit);
                 }
             } else {
                 if let Some(index) = MemoryView::render_number(ui, &view.format(unit)) {
@@ -249,7 +256,7 @@ impl View for MemoryView {
     fn update(&mut self, ui: &mut Ui, reader: &mut Reader, writer: &mut Writer) {
         self.process_events(reader);
         self.render_header(ui);
-        let mut address = 0;
+        let mut address = self.start_address.value;
         let bytes_per_line = match self.bytes_per_line {
             0 => {
                 let glyph_size = ui.calc_text_size("F", 0).0;
@@ -274,7 +281,7 @@ impl View for MemoryView {
 
         let mut next_editor_position = None;
         for line in self.data.chunks_mut(bytes_per_line) {
-            let np = MemoryView::render_line(&mut self.memory_editor, ui, address, line, self.number_view);
+            let np = MemoryView::render_line(&mut self.memory_editor, ui, address, line, self.number_view, writer);
             if np.is_some() {
                 next_editor_position = np;
             }
