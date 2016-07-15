@@ -68,27 +68,25 @@ impl NumberView {
     pub fn format(&self, buffer: &[u8]) -> String {
         macro_rules! format_buffer {
             ($data_type:ty, $len:expr, $endianness:expr, $format:expr) => {
-                let mut buf_copy = [0; $len];
-                buf_copy.copy_from_slice(&buffer[0..$len]);
                 unsafe {
-                    // Cannot use transmute_copy here as it requires argument with constant size
-                    // known at compile-time
-                    let mut num: $data_type = std::mem::transmute(buf_copy);
-                    num = match $endianness {
-                        Endianness::Little => num.to_le(),
-                        Endianness::Big => num.to_be(),
+                    if buffer.len() < $len {
+                        panic!("Could not convert buffer of length {} into data type of size {}", buffer.len(), $len);
+                    }
+                    let num_ref: &$data_type = std::mem::transmute(buffer.as_ptr());
+                    let num = match $endianness {
+                        Endianness::Little => num_ref.to_le(),
+                        Endianness::Big => num_ref.to_be(),
                     };
                     return format!($format, num);
                 }
             };
             ($data_type:ty, $len:expr, $format:expr) => {
-                let mut buf_copy = [0; $len];
-                buf_copy.copy_from_slice(&buffer[0..$len]);
                 unsafe {
-                    // Cannot use transmute_copy here as it requires argument with constant size
-                    // known at compile-time
-                    let num: $data_type = std::mem::transmute(buf_copy);
-                    return format!($format, num);
+                    if buffer.len() < $len {
+                        panic!("Could not convert buffer of length {} into data type of size {}", buffer.len(), $len);
+                    }
+                    let num_ref: &$data_type = std::mem::transmute(buffer.as_ptr());
+                    return format!($format, num_ref);
                 }
             };
         }
