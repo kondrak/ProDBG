@@ -53,8 +53,11 @@ impl NumberView {
                 NumberSize::FourBytes => 11,
                 NumberSize::EightBytes => 20,
             },
-            // TODO: pick a proper representation for floats
-            NumberRepresentation::Float => self.size.byte_count() * 2,
+            NumberRepresentation::Float => match self.size {
+                NumberSize::FourBytes => 14,
+                NumberSize::EightBytes => 23,
+                _ => 5, // For "Error" message
+            }
         }
     }
 
@@ -109,8 +112,8 @@ impl NumberView {
                 NumberSize::EightBytes => {format_buffer!(i64, 8, self.endianness, "{:20}");}
             },
             NumberRepresentation::Float => match self.size {
-                NumberSize::FourBytes => {format_buffer!(f32, 4, "{}");}
-                NumberSize::EightBytes => {format_buffer!(f64, 8, "{}");}
+                NumberSize::FourBytes => {format_buffer!(f32, 4, "{:14e}");}
+                NumberSize::EightBytes => {format_buffer!(f64, 8, "{:23e}");}
                 // Should never be available to pick through user interface
                 _ => return "Error".to_owned()
             },
