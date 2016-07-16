@@ -11,8 +11,6 @@ use number_view::{NumberView, NumberRepresentation, NumberSize, Endianness};
 use digit_memory_editor::DigitMemoryEditor;
 use helper::get_text_cursor_index;
 
-const BLOCK_SIZE: usize = 1024;
-// ProDBG does not respond to requests with low addresses.
 const START_ADDRESS: usize = 0xf0000;
 
 struct InputText {
@@ -22,12 +20,12 @@ struct InputText {
 }
 
 impl InputText {
-    pub fn new() -> InputText {
+    pub fn new(value: usize) -> InputText {
         let mut res = InputText {
             buf: [0; 20],
             value: 0,
         };
-        res.set_value(0);
+        res.set_value(value);
         return res;
     }
 
@@ -58,6 +56,7 @@ impl InputText {
 
 struct MemoryView {
     data: Vec<u8>,
+    bytes_requested: usize,
     start_address: InputText,
     bytes_per_line: usize,
     chars_per_address: usize,
@@ -80,16 +79,26 @@ impl MemoryView {
         }
     }
 
-    fn render_ansi_string(ui: &mut Ui, data: &[u8]) {
-        // TODO: align data
-        let copy:Vec<u8> = data.iter().map(|byte|
-            match *byte {
-                32...127 => *byte,
-                _ => '.' as u8,
-            }
-        ).collect();
+    fn render_inaccessible_memory(ui: &mut Ui, char_count: usize) {
+        let mut text = String::with_capacity(char_count);
+        for _ in 0..char_count {
+            text.push('?');
+        }
+        ui.text(&text);
+    }
+
+    fn render_ansi_string(ui: &mut Ui, data: &[u8], char_count: usize) {
+        let mut bytes = data.iter();
+        let mut text = String::with_capacity(char_count);
+        for _ in 0..char_count {
+            text.push(match bytes.next() {
+                Some(byte) if *byte >= 32 && *byte <= 127 => unsafe { std::char::from_u32_unchecked(*byte as u32) },
+                Some(_) => '.',
+                None => '?',
+            });
+        }
         ui.same_line(0, -1);
-        ui.text(str::from_utf8(&copy).unwrap());
+        ui.text(&text);
     }
 
     fn set_memory(writer: &mut Writer, address: usize, data: &[u8]) {
@@ -99,32 +108,42 @@ impl MemoryView {
         writer.event_end();
     }
 
-    fn render_line(editor: &mut DigitMemoryEditor, ui: &mut Ui, address: usize, data: &mut [u8], view: NumberView, writer: &mut Writer) -> Option<(usize, usize)> {
+    fn render_line(editor: &mut DigitMemoryEditor, ui: &mut Ui, address: usize, data: &mut [u8], view: NumberView, writer: &mut Writer, columns: usize) -> Option<(usize, usize)> {
         //TODO: Hide editor when user clicks somewhere else
         MemoryView::render_address(ui, address);
         ui.same_line(0, -1);
         let bytes_per_unit = view.size.byte_count();
         let mut cur_address = address;
         let mut next_position = None;
-        for unit in data.chunks_mut(bytes_per_unit) {
-            ui.same_line(0, -1);
-            if editor.is_at_address(cur_address) {
-                let (np, data_has_changed) = editor.render(ui, unit);
-                next_position = np;
-                if data_has_changed {
-                    MemoryView::set_memory(writer, cur_address, unit);
-                }
-            } else {
-                if let Some(index) = MemoryView::render_number(ui, &view.format(unit)) {
-                    if view.representation == NumberRepresentation::Hex {
-                        editor.set_position(cur_address, index);
-                        editor.focus();
+        {
+            let mut data_chunks = data.chunks_mut(bytes_per_unit);
+            for _ in 0..columns {
+                ui.same_line(0, -1);
+                match data_chunks.next() {
+                    Some(ref mut unit) if unit.len() == bytes_per_unit => {
+                        if editor.is_at_address(cur_address) {
+                            let (np, data_has_changed) = editor.render(ui, *unit);
+                            next_position = np;
+                            if data_has_changed {
+                                MemoryView::set_memory(writer, cur_address, *unit);
+                            }
+                        } else {
+                            if let Some(index) = MemoryView::render_number(ui, &view.format(*unit)) {
+                                if view.representation == NumberRepresentation::Hex {
+                                    editor.set_position(cur_address, index);
+                                    editor.focus();
+                                }
+                            }
+                        }
+                    },
+                    _ => {
+                        MemoryView::render_inaccessible_memory(ui, view.maximum_chars_needed());
                     }
                 }
+                cur_address += bytes_per_unit as usize;
             }
-            cur_address += bytes_per_unit as usize;
         }
-        MemoryView::render_ansi_string(ui, data);
+        MemoryView::render_ansi_string(ui, data, columns * bytes_per_unit);
         return next_position;
     }
 
@@ -183,7 +202,7 @@ impl MemoryView {
         ui.push_style_var_vec(ImGuiStyleVar::FramePadding, PDVec2{x: 1.0, y: 0.0});
         ui.push_item_width(ui.calc_text_size("00000000", 0).0 + 2.0);
         if self.start_address.render(ui) {
-            self.memory_request = Some((self.start_address.get_value(), BLOCK_SIZE));
+            self.memory_request = Some((self.start_address.get_value(), self.bytes_requested));
         }
         ui.pop_item_width();
         ui.pop_style_var(1);
@@ -225,8 +244,9 @@ impl MemoryView {
         match reader.find_data("data") {
             Ok(data) => {
                 println!("Got memory. Length is {}, buf ", data.len());
-                // TODO: check length here
-                (&mut self.data[0..data.len()]).copy_from_slice(data);
+                // TODO: set limits here. Do not copy more bytes than were reqeusted.
+                self.data.resize(data.len(), 0);
+                (&mut self.data).copy_from_slice(data);
             },
             Err(err) => {
                 println!("Could not read memory: {:?}", err);
@@ -243,12 +263,13 @@ impl View for MemoryView {
             endianness: Endianness::default(),
         };
         MemoryView {
-            data: vec![0; BLOCK_SIZE],
-            start_address: InputText::new(),
+            data: Vec::new(),
+            start_address: InputText::new(START_ADDRESS),
+            bytes_requested: 0,
             bytes_per_line: 8,
             chars_per_address: 10,
             memory_editor: DigitMemoryEditor::new(view),
-            memory_request: Some((START_ADDRESS, BLOCK_SIZE)),
+            memory_request: None,
             number_view: view,
         }
     }
@@ -279,13 +300,27 @@ impl View for MemoryView {
             _ => self.bytes_per_line,
         };
 
+        let line_height = ui.get_text_line_height_with_spacing();
+        let (start, end) = ui.calc_list_clipping(line_height);
+        let lines_needed = end - start;
+        let bytes_needed = bytes_per_line * lines_needed;
+        if bytes_needed > self.bytes_requested {
+            self.memory_request = Some((self.start_address.get_value(), bytes_needed));
+        }
+
         let mut next_editor_position = None;
-        for line in self.data.chunks_mut(bytes_per_line) {
-            let np = MemoryView::render_line(&mut self.memory_editor, ui, address, line, self.number_view, writer);
-            if np.is_some() {
-                next_editor_position = np;
+        let mut lines = self.data.chunks_mut(bytes_per_line);
+        for _ in 0..lines_needed {
+            let line = lines.next();
+            let buffer = match line {
+                Some(data) => data,
+                None => &mut [],
+            };
+            let next_position = MemoryView::render_line(&mut self.memory_editor, ui, address, buffer, self.number_view, writer, bytes_per_line / self.number_view.size.byte_count());
+            if next_position.is_some() {
+                next_editor_position = next_position;
             }
-            address += line.len();
+            address += bytes_per_line;
         }
         if let Some((address, cursor)) = next_editor_position {
             self.memory_editor.set_position(address, cursor);
@@ -293,6 +328,8 @@ impl View for MemoryView {
         }
 
         if let Some((address, size)) = self.memory_request {
+            println!("Requesting memory {} {}", address, size);
+            self.bytes_requested = size;
             writer.event_begin(EventType::GetMemory as u16);
             writer.write_u64("address_start", address as u64);
             writer.write_u64("size", size as u64);
