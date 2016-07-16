@@ -315,18 +315,18 @@ pub struct PDRect {
 }
 
 bitflags! {
-	flags PDUIWindowFlags_: c_uint {
-		const PDUIWINDOWFLAGS_NOTITLEBAR = 1 as c_uint,
-		const PDUIWINDOWFLAGS_NORESIZE = 2 as c_uint,
-		const PDUIWINDOWFLAGS_NOMOVE =	4 as c_uint,
-		const PDUIWINDOWFLAGS_NOSCROLLBAR =	8 as c_uint,
-		const PDUIWINDOWFLAGS_NOSCROLLWITHMOUSE = 16 as c_uint,
-		const PDUIWINDOWFLAGS_NOCOLLAPSE =	32 as c_uint,
-		const PDUIWINDOWFLAGS_ALWAYSAUTORESIZE = 64 as c_uint,
-		const PDUIWINDOWFLAGS_SHOWBORDERS =	128 as c_uint,
-		const PDUIWINDOWFLAGS_NOSAVEDSETTINGS =	256 as c_uint,
-		const PDUIWINDOWFLAGS_NOINPUTS = 512 as c_uint,
-		const PDUIWINDOWFLAGS_MENUBAR =	1024 as c_uint,
+	flags PDUIWindowFlags_: c_int {
+		const PDUIWINDOWFLAGS_NOTITLEBAR = 1 as c_int,
+		const PDUIWINDOWFLAGS_NORESIZE = 2 as c_int,
+		const PDUIWINDOWFLAGS_NOMOVE =	4 as c_int,
+		const PDUIWINDOWFLAGS_NOSCROLLBAR =	8 as c_int,
+		const PDUIWINDOWFLAGS_NOSCROLLWITHMOUSE = 16 as c_int,
+		const PDUIWINDOWFLAGS_NOCOLLAPSE =	32 as c_int,
+		const PDUIWINDOWFLAGS_ALWAYSAUTORESIZE = 64 as c_int,
+		const PDUIWINDOWFLAGS_SHOWBORDERS =	128 as c_int,
+		const PDUIWINDOWFLAGS_NOSAVEDSETTINGS =	256 as c_int,
+		const PDUIWINDOWFLAGS_NOINPUTS = 512 as c_int,
+		const PDUIWINDOWFLAGS_MENUBAR =	1024 as c_int,
 	}
 }
 

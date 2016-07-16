@@ -6,6 +6,7 @@ mod digit_memory_editor;
 mod helper;
 
 use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, PDVec2, InputTextFlags, ImGuiStyleVar, EventType};
+use prodbg_api::{PDUIWINDOWFLAGS_NOSCROLLBAR};
 use std::str;
 use number_view::{NumberView, NumberRepresentation, NumberSize, Endianness};
 use digit_memory_editor::DigitMemoryEditor;
@@ -308,6 +309,8 @@ impl View for MemoryView {
             self.memory_request = Some((self.start_address.get_value(), bytes_needed));
         }
 
+        ui.begin_child("##lines", None, false, PDUIWINDOWFLAGS_NOSCROLLBAR);
+
         let mut next_editor_position = None;
         let mut lines = self.data.chunks_mut(bytes_per_line);
         for _ in 0..lines_needed {
@@ -322,6 +325,7 @@ impl View for MemoryView {
             }
             address += bytes_per_line;
         }
+        ui.end_child();
         if let Some((address, cursor)) = next_editor_position {
             self.memory_editor.set_position(address, cursor);
             self.memory_editor.focus();

@@ -333,16 +333,16 @@ impl Ui {
         unsafe { ((*self.api).set_scroll_here)(center) }
     }
 
-    pub fn begin_child(&self, id: &str, pos: Option<PDVec2>, border: bool, flags: u32) {
+    pub fn begin_child(&self, id: &str, pos: Option<PDVec2>, border: bool, flags: PDUIWindowFlags_) {
         unsafe {
             let t = CFixedString::from_str(id).as_ptr();
             match pos {
-                Some(p) => ((*self.api).begin_child)(t, p, border as i32, flags as i32),
+                Some(p) => ((*self.api).begin_child)(t, p, border as i32, flags.bits()),
                 None => {
                     ((*self.api).begin_child)(t,
                                               PDVec2 { x: 0.0, y: 0.0 },
                                               border as i32,
-                                              flags as i32)
+                                              flags.bits())
                 }
             }
         }
