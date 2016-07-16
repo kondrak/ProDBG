@@ -528,6 +528,16 @@ impl Ui {
         }
     }
 
+    #[inline]
+    pub fn calc_list_clipping(&self, items_height: f32) -> (usize, usize) {
+        unsafe {
+            let mut start_index = 0i32;
+            let mut end_index = 0i32;
+            ((*self.api).calc_list_clipping)(i32::max_value(), items_height, &mut start_index, &mut end_index);
+            return (start_index as usize, end_index as usize);
+        }
+    }
+
     ///
     /// Ids
     ///
