@@ -6,13 +6,15 @@ mod digit_memory_editor;
 mod helper;
 
 use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, PDVec2, InputTextFlags, ImGuiStyleVar, EventType};
-use prodbg_api::{PDUIWINDOWFLAGS_NOSCROLLBAR};
+use prodbg_api::PDUIWINDOWFLAGS_HORIZONTALSCROLLBAR;
 use std::str;
 use number_view::{NumberView, NumberRepresentation, NumberSize, Endianness};
 use digit_memory_editor::DigitMemoryEditor;
 use helper::get_text_cursor_index;
 
 const START_ADDRESS: usize = 0xf0000;
+const TABLE_SPACING: &'static str = "  ";
+const COLUMNS_SPACING: &'static str = " ";
 
 struct InputText {
     // TODO: What buffer do we really need for address?
@@ -55,11 +57,13 @@ impl InputText {
     }
 }
 
+const COLUMNS_TEXT_VARIANTS: [&'static str; 9] = ["Fit width", "1 column", "2 columns", "4 columns", "8 columns", "16 columns", "32 columns", "64 columns", "128 columns"];
+const COLUMNS_NUM_VARIANTS: [usize; 9] = [0, 1, 2, 4, 8, 16, 32, 64, 128];
 struct MemoryView {
     data: Vec<u8>,
     bytes_requested: usize,
     start_address: InputText,
-    bytes_per_line: usize,
+    columns: usize,
     chars_per_address: usize,
     memory_editor: DigitMemoryEditor,
     memory_request: Option<(usize, usize)>,
@@ -113,12 +117,15 @@ impl MemoryView {
         //TODO: Hide editor when user clicks somewhere else
         MemoryView::render_address(ui, address);
         ui.same_line(0, -1);
+        ui.text(TABLE_SPACING);
+        ui.same_line(0, -1);
+
         let bytes_per_unit = view.size.byte_count();
         let mut cur_address = address;
         let mut next_position = None;
         {
             let mut data_chunks = data.chunks_mut(bytes_per_unit);
-            for _ in 0..columns {
+            for column in 0..columns {
                 ui.same_line(0, -1);
                 match data_chunks.next() {
                     Some(ref mut unit) if unit.len() == bytes_per_unit => {
@@ -141,9 +148,15 @@ impl MemoryView {
                         MemoryView::render_inaccessible_memory(ui, view.maximum_chars_needed());
                     }
                 }
+                if column < columns - 1 {
+                    ui.same_line(0, -1);
+                    ui.text(COLUMNS_SPACING);
+                }
                 cur_address += bytes_per_unit as usize;
             }
         }
+        ui.same_line(0, -1);
+        ui.text(TABLE_SPACING);
         MemoryView::render_ansi_string(ui, data, columns * bytes_per_unit);
         return next_position;
     }
@@ -197,6 +210,15 @@ impl MemoryView {
         }
     }
 
+    fn render_columns_picker(&mut self, ui: &mut Ui) {
+        ui.push_item_width(200.0);
+        let mut cur_item = COLUMNS_NUM_VARIANTS.iter().position(|&x| x == self.columns).unwrap_or(0);
+        if ui.combo("##byte_per_line", &mut cur_item, &COLUMNS_TEXT_VARIANTS, COLUMNS_TEXT_VARIANTS.len(), COLUMNS_TEXT_VARIANTS.len()) {
+            self.columns = COLUMNS_NUM_VARIANTS.get(cur_item).map(|x| *x).unwrap_or(0);
+        }
+        ui.pop_item_width();
+    }
+
     fn render_header(&mut self, ui: &mut Ui) {
         ui.text("0x");
         ui.same_line(0, 0);
@@ -210,13 +232,7 @@ impl MemoryView {
         ui.same_line(0, -1);
         self.render_number_view_picker(ui);
         ui.same_line(0, -1);
-        let mut is_auto = self.bytes_per_line == 0;
-        ui.checkbox("Auto width", &mut is_auto);
-        if is_auto {
-            self.bytes_per_line = 0;
-        } else {
-            self.bytes_per_line = 16;
-        }
+        self.render_columns_picker(ui);
     }
 
     fn process_events(&mut self, reader: &mut Reader) {
@@ -254,6 +270,19 @@ impl MemoryView {
             }
         }
     }
+
+    /// Returns maximum amount of bytes that could be rendered within window width
+    /// Minimum number of columns reported is 1.
+    fn get_columns_from_width(&self, ui: &Ui) -> usize {
+        // TODO: ImGui reports inaccurate glyph size. Find a better way to find chars_in_screen.
+        let glyph_size = ui.calc_text_size("ff", 0).0 / 2.0;
+        let chars_in_screen = (ui.get_window_size().0 / glyph_size) as usize;
+        let chars_left = chars_in_screen.saturating_sub(2 * TABLE_SPACING.len() + self.chars_per_address);
+        let text_chars = self.number_view.size.byte_count();
+        // Number of chars we need to draw one unit: number view, space, text view
+        let chars_per_unit = self.number_view.maximum_chars_needed() + COLUMNS_SPACING.len() + text_chars;
+        return std::cmp::max(chars_left / chars_per_unit, 1);
+    }
 }
 
 impl View for MemoryView {
@@ -267,7 +296,7 @@ impl View for MemoryView {
             data: Vec::new(),
             start_address: InputText::new(START_ADDRESS),
             bytes_requested: 0,
-            bytes_per_line: 8,
+            columns: 0,
             chars_per_address: 10,
             memory_editor: DigitMemoryEditor::new(view),
             memory_request: None,
@@ -279,37 +308,23 @@ impl View for MemoryView {
         self.process_events(reader);
         self.render_header(ui);
         let mut address = self.start_address.value;
-        let bytes_per_line = match self.bytes_per_line {
-            0 => {
-                let glyph_size = ui.calc_text_size("F", 0).0;
-                // Size of column with address (address length + space)
-                let address_size = (self.chars_per_address as f32 + 1.0) * glyph_size;
-                let screen_width = ui.get_window_size().0;
-                // Screen space available for int and chars view
-                let screen_left = screen_width - address_size;
-                // Number of chars we can draw
-                let chars_left = (screen_left / glyph_size) as usize;
-                let unit_size = self.number_view.size.byte_count();
-                // Number of chars we need to draw one unit
-                let chars_per_unit = self.number_view.maximum_chars_needed() + 1 + unit_size;
-                if chars_left > chars_per_unit {
-                    (chars_left / chars_per_unit * unit_size)
-                } else {
-                    unit_size
-                }
-            },
-            _ => self.bytes_per_line,
+        let columns = match self.columns {
+            0 => self.get_columns_from_width(ui),
+            x => x,
         };
+        let bytes_per_line = columns * self.number_view.size.byte_count();
 
+        ui.push_style_var_vec(ImGuiStyleVar::ItemSpacing, PDVec2 {x: 0.0, y: 0.0});
         let line_height = ui.get_text_line_height_with_spacing();
         let (start, end) = ui.calc_list_clipping(line_height);
-        let lines_needed = end - start;
+        // Strip last line to make sure vertical scrollbar will not appear
+        let lines_needed = end.saturating_sub(start + 1);
         let bytes_needed = bytes_per_line * lines_needed;
         if bytes_needed > self.bytes_requested {
             self.memory_request = Some((self.start_address.get_value(), bytes_needed));
         }
 
-        ui.begin_child("##lines", None, false, PDUIWINDOWFLAGS_NOSCROLLBAR);
+        ui.begin_child("##lines", None, false, PDUIWINDOWFLAGS_HORIZONTALSCROLLBAR);
 
         let mut next_editor_position = None;
         let mut lines = self.data.chunks_mut(bytes_per_line);
@@ -319,13 +334,16 @@ impl View for MemoryView {
                 Some(data) => data,
                 None => &mut [],
             };
-            let next_position = MemoryView::render_line(&mut self.memory_editor, ui, address, buffer, self.number_view, writer, bytes_per_line / self.number_view.size.byte_count());
+            let next_position = MemoryView::render_line(&mut self.memory_editor, ui, address, buffer, self.number_view, writer, columns);
             if next_position.is_some() {
                 next_editor_position = next_position;
             }
             address += bytes_per_line;
         }
+
         ui.end_child();
+        ui.pop_style_var(1);
+
         if let Some((address, cursor)) = next_editor_position {
             self.memory_editor.set_position(address, cursor);
             self.memory_editor.focus();

@@ -327,6 +327,7 @@ bitflags! {
 		const PDUIWINDOWFLAGS_NOSAVEDSETTINGS =	256 as c_int,
 		const PDUIWINDOWFLAGS_NOINPUTS = 512 as c_int,
 		const PDUIWINDOWFLAGS_MENUBAR =	1024 as c_int,
+		const PDUIWINDOWFLAGS_HORIZONTALSCROLLBAR = 1 << 11 as c_int,
 	}
 }
 
