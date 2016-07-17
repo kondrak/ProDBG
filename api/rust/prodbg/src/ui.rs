@@ -160,6 +160,55 @@ pub enum InputTextFlags {
     Multiline           = 1 << 20   // For internal use by InputTextMultiline()
 }
 
+
+// Enumeration for PushStyleColor() / PopStyleColor()
+pub enum ImGuiCol {
+    Text = 0,
+    TextDisabled,
+    WindowBg,              // Background of normal windows
+    ChildWindowBg,         // Background of child windows
+    PopupBg,               // Background of popups, menus, tooltips windows
+    Border,
+    BorderShadow,
+    FrameBg,               // Background of checkbox, radio button, plot, slider, text input
+    FrameBgHovered,
+    FrameBgActive,
+    TitleBg,
+    TitleBgCollapsed,
+    TitleBgActive,
+    MenuBarBg,
+    ScrollbarBg,
+    ScrollbarGrab,
+    ScrollbarGrabHovered,
+    ScrollbarGrabActive,
+    ComboBg,
+    CheckMark,
+    SliderGrab,
+    SliderGrabActive,
+    Button,
+    ButtonHovered,
+    ButtonActive,
+    Header,
+    HeaderHovered,
+    HeaderActive,
+    Column,
+    ColumnHovered,
+    ColumnActive,
+    ResizeGrip,
+    ResizeGripHovered,
+    ResizeGripActive,
+    CloseButton,
+    CloseButtonHovered,
+    CloseButtonActive,
+    PlotLines,
+    PlotLinesHovered,
+    PlotHistogram,
+    PlotHistogramHovered,
+    TextSelectedBg,
+    ModalWindowDarkening,  // darken entire screen when a modal window is active
+}
+
+
 pub enum ImGuiStyleVar
 {
     Alpha = 0,           // float
@@ -381,13 +430,13 @@ impl Ui {
     // TODO: push/pop font
 
     #[inline]
-	pub fn push_style_color(&self, index: usize, col: Color) {
+	pub fn push_style_color(&self, index: ImGuiCol, col: Color) {
         unsafe { ((*self.api).push_style_color)(index as u32, col.color) }
     }
 
     #[inline]
-	pub fn pop_style_color(&self, index: usize) {
-        unsafe { ((*self.api).pop_style_color)(index as i32) }
+	pub fn pop_style_color(&self, count: usize) {
+        unsafe { ((*self.api).pop_style_color)(count as i32) }
     }
 
     #[inline]
