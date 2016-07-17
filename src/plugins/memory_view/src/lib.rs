@@ -5,7 +5,7 @@ mod number_view;
 mod digit_memory_editor;
 mod helper;
 
-use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, PDVec2, InputTextFlags, ImGuiStyleVar, EventType};
+use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, PDVec2, InputTextFlags, ImGuiStyleVar, EventType, ImGuiCol, Color, ReadStatus};
 use prodbg_api::PDUIWINDOWFLAGS_HORIZONTALSCROLLBAR;
 use std::str;
 use number_view::{NumberView, NumberRepresentation, NumberSize, Endianness};
@@ -15,6 +15,8 @@ use helper::get_text_cursor_index;
 const START_ADDRESS: usize = 0xf0000;
 const TABLE_SPACING: &'static str = "  ";
 const COLUMNS_SPACING: &'static str = " ";
+// TODO: change to Color when `const fn` is in stable Rust
+const CHANGED_DATA_COLOR: u32 = 0xff0000ff;
 
 struct InputText {
     // TODO: What buffer do we really need for address?
@@ -61,6 +63,7 @@ const COLUMNS_TEXT_VARIANTS: [&'static str; 9] = ["Fit width", "1 column", "2 co
 const COLUMNS_NUM_VARIANTS: [usize; 9] = [0, 1, 2, 4, 8, 16, 32, 64, 128];
 struct MemoryView {
     data: Vec<u8>,
+    prev_data: Vec<u8>,
     bytes_requested: usize,
     start_address: InputText,
     columns: usize,
@@ -92,18 +95,43 @@ impl MemoryView {
         ui.text(&text);
     }
 
-    fn render_ansi_string(ui: &mut Ui, data: &[u8], char_count: usize) {
+    fn render_ansi_string(ui: &mut Ui, data: &[u8], prev_data: &[u8], char_count: usize) {
         let mut bytes = data.iter();
+        let mut prev_bytes = prev_data.iter();
         let mut text = String::with_capacity(char_count);
+        let mut is_marked_chunk = false;
+        let render_text = |text: &mut String, is_marked| {
+            if text.is_empty() {
+                return;
+            }
+            ui.same_line(0, -1);
+            if is_marked {
+                ui.push_style_color(ImGuiCol::Text, Color::from_u32(CHANGED_DATA_COLOR));
+            }
+            ui.text(&text);
+            if is_marked {
+                ui.pop_style_color(1);
+            }
+            text.clear();
+        };
         for _ in 0..char_count {
-            text.push(match bytes.next() {
+            let cur_char = bytes.next();
+            let prev_char = prev_bytes.next();
+            let is_marked = match (cur_char, prev_char) {
+                (Some(byte), Some(prev_byte)) => byte != prev_byte,
+                _ => false,
+            };
+            if is_marked != is_marked_chunk {
+                render_text(&mut text, is_marked_chunk);
+                is_marked_chunk = is_marked;
+            }
+            text.push(match cur_char {
                 Some(byte) if *byte >= 32 && *byte <= 127 => unsafe { std::char::from_u32_unchecked(*byte as u32) },
                 Some(_) => '.',
                 None => '?',
             });
         }
-        ui.same_line(0, -1);
-        ui.text(&text);
+        render_text(&mut text, is_marked_chunk);
     }
 
     fn set_memory(writer: &mut Writer, address: usize, data: &[u8]) {
@@ -113,7 +141,7 @@ impl MemoryView {
         writer.event_end();
     }
 
-    fn render_line(editor: &mut DigitMemoryEditor, ui: &mut Ui, address: usize, data: &mut [u8], view: NumberView, writer: &mut Writer, columns: usize) -> Option<(usize, usize)> {
+    fn render_line(editor: &mut DigitMemoryEditor, ui: &mut Ui, address: usize, data: &mut [u8], prev_data: &[u8], view: NumberView, writer: &mut Writer, columns: usize) -> Option<(usize, usize)> {
         //TODO: Hide editor when user clicks somewhere else
         MemoryView::render_address(ui, address);
         ui.same_line(0, -1);
@@ -125,10 +153,18 @@ impl MemoryView {
         let mut next_position = None;
         {
             let mut data_chunks = data.chunks_mut(bytes_per_unit);
+            let mut prev_data_chunks = prev_data.chunks(bytes_per_unit);
             for column in 0..columns {
                 ui.same_line(0, -1);
                 match data_chunks.next() {
                     Some(ref mut unit) if unit.len() == bytes_per_unit => {
+                        let has_changed = match prev_data_chunks.next() {
+                            Some(ref prev_unit) if prev_unit.len() == bytes_per_unit => unit != prev_unit,
+                            _ => false,
+                        };
+                        if has_changed {
+                            ui.push_style_color(ImGuiCol::Text, Color::from_u32(CHANGED_DATA_COLOR));
+                        }
                         if editor.is_at_address(cur_address) {
                             let (np, data_has_changed) = editor.render(ui, *unit);
                             next_position = np;
@@ -142,6 +178,9 @@ impl MemoryView {
                                     editor.focus();
                                 }
                             }
+                        }
+                        if has_changed {
+                            ui.pop_style_color(1);
                         }
                     },
                     _ => {
@@ -157,7 +196,7 @@ impl MemoryView {
         }
         ui.same_line(0, -1);
         ui.text(TABLE_SPACING);
-        MemoryView::render_ansi_string(ui, data, columns * bytes_per_unit);
+        MemoryView::render_ansi_string(ui, data, prev_data, columns * bytes_per_unit);
         return next_position;
     }
 
@@ -235,40 +274,52 @@ impl MemoryView {
         self.render_columns_picker(ui);
     }
 
+    fn process_step(&mut self) {
+        std::mem::swap(&mut self.data, &mut self.prev_data);
+        self.memory_request = Some((self.start_address.get_value(), self.bytes_requested));
+    }
+
     fn process_events(&mut self, reader: &mut Reader) {
         for event_type in reader.get_events() {
             match event_type {
                 et if et == EventType::SetMemory as i32 => {
-                    println!("Updating memory");
-                    self.update_memory(reader);
+                    if let Err(e) = self.update_memory(reader) {
+                        println!("Could not update memory: {:?}", e);
+                    }
                 },
+                // TODO: change this event to one or several that correspond to executing code
+                et if et == EventType::SetBreakpoint as i32 => {
+                    self.process_step();
+                }
                 _ => {}//println!("Got unknown event type: {:?}", event_type)}
             }
         }
     }
 
-    fn update_memory(&mut self, reader: &mut Reader) {
-        match reader.find_u64("address") {
-            Ok(address) => {
-                self.start_address.set_value(address as usize);
-                println!("Setting address {}", address);
-            },
-            Err(err) => {
-                println!("Could not get address: {:?}", err);
-                return;
-            }
+    fn update_memory(&mut self, reader: &mut Reader) -> Result<(), ReadStatus> {
+        let address = try!(reader.find_u64("address"));
+        let data = try!(reader.find_data("data"));
+        self.start_address.set_value(address as usize);
+        // TODO: set limits here. Do not copy more bytes than were reqeusted.
+        self.data.resize(data.len(), 0);
+        (&mut self.data).copy_from_slice(data);
+        let prev_data_len = self.prev_data.len();
+        if prev_data_len < data.len() {
+            // Do not rewrite stored data, only append data that was missing. Needed for next
+            // situation:
+            // * user changes data: prev_data and data differ;
+            // * user extends window of MemoryView
+            // * `data` of bigger size arrives and replaces `self.data`
+            // In this situation we cannot replace `prev_data` since it will lose
+            // information about changes that user did before. Also we cannot leave
+            // `self.prev_data` unchanged because user will not see changes that he makes in
+            // newly added piece of memory. The only thing we can do is to add newly added
+            // piece of memory to `prev_data`.
+            self.prev_data.extend(&data[prev_data_len..]);
+        } else {
+            self.prev_data.truncate(data.len());
         }
-        match reader.find_data("data") {
-            Ok(data) => {
-                println!("Got memory. Length is {}, buf ", data.len());
-                // TODO: set limits here. Do not copy more bytes than were reqeusted.
-                self.data.resize(data.len(), 0);
-                (&mut self.data).copy_from_slice(data);
-            },
-            Err(err) => {
-                println!("Could not read memory: {:?}", err);
-            }
-        }
+        Ok(())
     }
 
     /// Returns maximum amount of bytes that could be rendered within window width
@@ -294,6 +345,7 @@ impl View for MemoryView {
         };
         MemoryView {
             data: Vec::new(),
+            prev_data: Vec::new(),
             start_address: InputText::new(START_ADDRESS),
             bytes_requested: 0,
             columns: 0,
@@ -328,13 +380,11 @@ impl View for MemoryView {
 
         let mut next_editor_position = None;
         let mut lines = self.data.chunks_mut(bytes_per_line);
+        let mut prev_lines = self.prev_data.chunks(bytes_per_line);
         for _ in 0..lines_needed {
-            let line = lines.next();
-            let buffer = match line {
-                Some(data) => data,
-                None => &mut [],
-            };
-            let next_position = MemoryView::render_line(&mut self.memory_editor, ui, address, buffer, self.number_view, writer, columns);
+            let line = lines.next().unwrap_or(&mut []);
+            let prev_line = prev_lines.next().unwrap_or(&[]);
+            let next_position = MemoryView::render_line(&mut self.memory_editor, ui, address, line, prev_line, self.number_view, writer, columns);
             if next_position.is_some() {
                 next_editor_position = next_position;
             }
@@ -350,7 +400,6 @@ impl View for MemoryView {
         }
 
         if let Some((address, size)) = self.memory_request {
-            println!("Requesting memory {} {}", address, size);
             self.bytes_requested = size;
             writer.event_begin(EventType::GetMemory as u16);
             writer.write_u64("address_start", address as u64);
