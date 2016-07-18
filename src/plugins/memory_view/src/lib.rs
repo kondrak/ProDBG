@@ -70,7 +70,8 @@ struct MemoryView {
     chars_per_address: usize,
     memory_editor: DigitMemoryEditor,
     memory_request: Option<(usize, usize)>,
-    number_view: NumberView
+    number_view: NumberView,
+    text_shown: bool,
 }
 
 impl MemoryView {
@@ -95,7 +96,7 @@ impl MemoryView {
         ui.text(&text);
     }
 
-    fn render_ansi_string(ui: &mut Ui, data: &[u8], prev_data: &[u8], char_count: usize) {
+    fn render_ascii_string(ui: &mut Ui, data: &[u8], prev_data: &[u8], char_count: usize) {
         let mut bytes = data.iter();
         let mut prev_bytes = prev_data.iter();
         let mut text = String::with_capacity(char_count);
@@ -141,7 +142,7 @@ impl MemoryView {
         writer.event_end();
     }
 
-    fn render_line(editor: &mut DigitMemoryEditor, ui: &mut Ui, address: usize, data: &mut [u8], prev_data: &[u8], view: NumberView, writer: &mut Writer, columns: usize) -> Option<(usize, usize)> {
+    fn render_line(editor: &mut DigitMemoryEditor, ui: &mut Ui, address: usize, data: &mut [u8], prev_data: &[u8], view: NumberView, writer: &mut Writer, columns: usize, text_shown: bool) -> Option<(usize, usize)> {
         //TODO: Hide editor when user clicks somewhere else
         MemoryView::render_address(ui, address);
         ui.same_line(0, -1);
@@ -194,9 +195,11 @@ impl MemoryView {
                 cur_address += bytes_per_unit as usize;
             }
         }
-        ui.same_line(0, -1);
-        ui.text(TABLE_SPACING);
-        MemoryView::render_ansi_string(ui, data, prev_data, columns * bytes_per_unit);
+        if text_shown {
+            ui.same_line(0, -1);
+            ui.text(TABLE_SPACING);
+            MemoryView::render_ascii_string(ui, data, prev_data, columns * bytes_per_unit);
+        }
         return next_position;
     }
 
@@ -272,6 +275,8 @@ impl MemoryView {
         self.render_number_view_picker(ui);
         ui.same_line(0, -1);
         self.render_columns_picker(ui);
+        ui.same_line(0, -1);
+        ui.checkbox("Show text", &mut self.text_shown);
     }
 
     fn process_step(&mut self) {
@@ -328,10 +333,17 @@ impl MemoryView {
         // TODO: ImGui reports inaccurate glyph size. Find a better way to find chars_in_screen.
         let glyph_size = ui.calc_text_size("ff", 0).0 / 2.0;
         let chars_in_screen = (ui.get_window_size().0 / glyph_size) as usize;
-        let chars_left = chars_in_screen.saturating_sub(2 * TABLE_SPACING.len() + self.chars_per_address);
-        let text_chars = self.number_view.size.byte_count();
-        // Number of chars we need to draw one unit: number view, space, text view
-        let chars_per_unit = self.number_view.maximum_chars_needed() + COLUMNS_SPACING.len() + text_chars;
+        let chars_left = if self.text_shown {
+            chars_in_screen.saturating_sub(2 * TABLE_SPACING.len() + self.chars_per_address)
+        } else {
+            chars_in_screen.saturating_sub(TABLE_SPACING.len() + self.chars_per_address)
+        };
+        let chars_per_unit = if self.text_shown {
+            // Number of chars we need to draw one unit: number view, space, text view
+            self.number_view.maximum_chars_needed() + COLUMNS_SPACING.len() + self.number_view.size.byte_count()
+        } else {
+            self.number_view.maximum_chars_needed() + COLUMNS_SPACING.len()
+        };
         return std::cmp::max(chars_left / chars_per_unit, 1);
     }
 }
@@ -353,6 +365,7 @@ impl View for MemoryView {
             memory_editor: DigitMemoryEditor::new(view),
             memory_request: None,
             number_view: view,
+            text_shown: true,
         }
     }
 
@@ -384,7 +397,7 @@ impl View for MemoryView {
         for _ in 0..lines_needed {
             let line = lines.next().unwrap_or(&mut []);
             let prev_line = prev_lines.next().unwrap_or(&[]);
-            let next_position = MemoryView::render_line(&mut self.memory_editor, ui, address, line, prev_line, self.number_view, writer, columns);
+            let next_position = MemoryView::render_line(&mut self.memory_editor, ui, address, line, prev_line, self.number_view, writer, columns, self.text_shown);
             if next_position.is_some() {
                 next_editor_position = next_position;
             }
