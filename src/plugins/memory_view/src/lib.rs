@@ -2,14 +2,17 @@
 extern crate prodbg_api;
 
 mod number_view;
-mod digit_memory_editor;
+mod hex_editor;
+mod char_editor;
+mod ascii_editor;
 mod helper;
 
 use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, PDVec2, InputTextFlags, ImGuiStyleVar, EventType, ImGuiCol, Color, ReadStatus};
 use prodbg_api::PDUIWINDOWFLAGS_HORIZONTALSCROLLBAR;
 use std::str;
 use number_view::{NumberView, NumberRepresentation, NumberSize, Endianness};
-use digit_memory_editor::DigitMemoryEditor;
+use hex_editor::HexEditor;
+use ascii_editor::AsciiEditor;
 use helper::get_text_cursor_index;
 
 const START_ADDRESS: usize = 0xf0000;
@@ -59,6 +62,21 @@ impl InputText {
     }
 }
 
+enum Editor {
+    Hex(HexEditor),
+    Text(AsciiEditor),
+    None,
+}
+
+impl Editor {
+    fn text(&mut self) -> Option<&mut AsciiEditor> {
+        match self {
+            &mut Editor::Text(ref mut e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
 const COLUMNS_TEXT_VARIANTS: [&'static str; 9] = ["Fit width", "1 column", "2 columns", "4 columns", "8 columns", "16 columns", "32 columns", "64 columns", "128 columns"];
 const COLUMNS_NUM_VARIANTS: [usize; 9] = [0, 1, 2, 4, 8, 16, 32, 64, 128];
 struct MemoryView {
@@ -68,7 +86,7 @@ struct MemoryView {
     start_address: InputText,
     columns: usize,
     chars_per_address: usize,
-    memory_editor: DigitMemoryEditor,
+    memory_editor: Editor,
     memory_request: Option<(usize, usize)>,
     number_view: NumberView,
     text_shown: bool,
@@ -96,43 +114,57 @@ impl MemoryView {
         ui.text(&text);
     }
 
-    fn render_ascii_string(ui: &mut Ui, data: &[u8], prev_data: &[u8], char_count: usize) {
-        let mut bytes = data.iter();
+    fn render_ascii_string(ui: &mut Ui, mut address: usize, data: &mut [u8], prev_data: &[u8], char_count: usize, mut editor: Option<&mut AsciiEditor>) -> (Option<AsciiEditor>, Option<(usize, usize)>) {
+        let mut bytes = data.iter_mut();
         let mut prev_bytes = prev_data.iter();
-        let mut text = String::with_capacity(char_count);
-        let mut is_marked_chunk = false;
-        let render_text = |text: &mut String, is_marked| {
-            if text.is_empty() {
-                return;
+        let mut next_editor = None;
+        let mut changed_data = None;
+        for _ in 0..char_count {
+            let mut cur_char = bytes.next();
+            let prev_char = prev_bytes.next();
+            let mut is_marked = false;
+            if let Some(ref cur) = cur_char {
+                if let Some(ref prev) = prev_char {
+                    is_marked = cur != prev;
+                }
             }
-            ui.same_line(0, -1);
             if is_marked {
                 ui.push_style_color(ImGuiCol::Text, Color::from_u32(CHANGED_DATA_COLOR));
             }
-            ui.text(&text);
+            let mut is_editor = false;
+            ui.same_line(0, -1);
+            if let Some(ref mut c) = cur_char {
+                if let Some(ref mut e) = editor {
+                    if e.address == address {
+                        is_editor = true;
+                        let (pos, has_changed) = e.render(ui, c);
+                        if has_changed {
+                            changed_data = Some((address, 1));
+                        }
+                        next_editor = next_editor.or(pos.map(|address| AsciiEditor::new(address)));
+                    }
+                }
+            }
+            if !is_editor {
+                match cur_char {
+                    Some(byte) => {
+                        match *byte {
+                            32...127 => ui.text( unsafe { std::str::from_utf8_unchecked( & [ * byte]) }),
+                            _ => ui.text("."),
+                        }
+                        if ui.is_item_hovered() && ui.is_mouse_clicked(0, false) {
+                            next_editor = next_editor.or_else(|| Some(AsciiEditor::new(address)));
+                        }
+                    },
+                    None => ui.text("?"),
+                };
+            }
             if is_marked {
                 ui.pop_style_color(1);
             }
-            text.clear();
-        };
-        for _ in 0..char_count {
-            let cur_char = bytes.next();
-            let prev_char = prev_bytes.next();
-            let is_marked = match (cur_char, prev_char) {
-                (Some(byte), Some(prev_byte)) => byte != prev_byte,
-                _ => false,
-            };
-            if is_marked != is_marked_chunk {
-                render_text(&mut text, is_marked_chunk);
-                is_marked_chunk = is_marked;
-            }
-            text.push(match cur_char {
-                Some(byte) if *byte >= 32 && *byte <= 127 => unsafe { std::char::from_u32_unchecked(*byte as u32) },
-                Some(_) => '.',
-                None => '?',
-            });
+            address += 1;
         }
-        render_text(&mut text, is_marked_chunk);
+        (next_editor, changed_data)
     }
 
     fn set_memory(writer: &mut Writer, address: usize, data: &[u8]) {
@@ -142,7 +174,7 @@ impl MemoryView {
         writer.event_end();
     }
 
-    fn render_line(editor: &mut DigitMemoryEditor, ui: &mut Ui, address: usize, data: &mut [u8], prev_data: &[u8], view: NumberView, writer: &mut Writer, columns: usize, text_shown: bool) -> Option<(usize, usize)> {
+    fn render_line(editor: &mut Editor, ui: &mut Ui, address: usize, data: &mut [u8], prev_data: &[u8], view: NumberView, writer: &mut Writer, columns: usize, text_shown: bool) -> Option<Editor> {
         //TODO: Hide editor when user clicks somewhere else
         MemoryView::render_address(ui, address);
         ui.same_line(0, -1);
@@ -151,7 +183,8 @@ impl MemoryView {
 
         let bytes_per_unit = view.size.byte_count();
         let mut cur_address = address;
-        let mut next_position = None;
+        let mut res = None;
+        let mut new_data = None;
         {
             let mut data_chunks = data.chunks_mut(bytes_per_unit);
             let mut prev_data_chunks = prev_data.chunks(bytes_per_unit);
@@ -166,17 +199,23 @@ impl MemoryView {
                         if has_changed {
                             ui.push_style_color(ImGuiCol::Text, Color::from_u32(CHANGED_DATA_COLOR));
                         }
-                        if editor.is_at_address(cur_address) {
-                            let (np, data_has_changed) = editor.render(ui, *unit);
-                            next_position = np;
-                            if data_has_changed {
-                                MemoryView::set_memory(writer, cur_address, *unit);
+                        let mut is_editor = false;
+                        if let &mut Editor::Hex(ref mut e) = editor {
+                            if e.is_at_address(cur_address) {
+                                let (np, data_edited) = e.render(ui, *unit);
+                                res = res.or(np.map(|(address, cursor)|
+                                    Editor::Hex(HexEditor::new(address, cursor, view))
+                                ));
+                                if data_edited {
+                                    new_data = Some((cur_address, bytes_per_unit));
+                                }
+                                is_editor = true;
                             }
-                        } else {
+                        }
+                        if !is_editor {
                             if let Some(index) = MemoryView::render_number(ui, &view.format(*unit)) {
                                 if view.representation == NumberRepresentation::Hex {
-                                    editor.set_position(cur_address, index);
-                                    editor.focus();
+                                    res = Some(Editor::Hex(HexEditor::new(cur_address, index, view)));
                                 }
                             }
                         }
@@ -198,17 +237,22 @@ impl MemoryView {
         if text_shown {
             ui.same_line(0, -1);
             ui.text(TABLE_SPACING);
-            MemoryView::render_ascii_string(ui, data, prev_data, columns * bytes_per_unit);
+            let ascii_res = MemoryView::render_ascii_string(ui, address, data, prev_data, columns * bytes_per_unit, editor.text());
+            if let Some(next_editor) = ascii_res.0 {
+                res = Some(Editor::Text(next_editor));
+            }
+            new_data = new_data.or(ascii_res.1);
         }
-        return next_position;
+        if let Some((abs_address, size)) = new_data {
+            let offset = abs_address - address;
+            MemoryView::set_memory(writer, abs_address, &data[offset..offset+size]);
+        }
+        return res;
     }
 
     fn change_number_view(&mut self, view: NumberView) {
         self.number_view = view;
-        match view.representation {
-            NumberRepresentation::Hex => self.memory_editor.set_number_view(view),
-            _ => self.memory_editor.position = None,
-        }
+        self.memory_editor = Editor::None;
     }
 
     fn render_number_view_picker(&mut self, ui: &mut Ui) {
@@ -362,7 +406,7 @@ impl View for MemoryView {
             bytes_requested: 0,
             columns: 0,
             chars_per_address: 10,
-            memory_editor: DigitMemoryEditor::new(view),
+            memory_editor: Editor::None,
             memory_request: None,
             number_view: view,
             text_shown: true,
@@ -407,9 +451,8 @@ impl View for MemoryView {
         ui.end_child();
         ui.pop_style_var(1);
 
-        if let Some((address, cursor)) = next_editor_position {
-            self.memory_editor.set_position(address, cursor);
-            self.memory_editor.focus();
+        if let Some(editor) = next_editor_position {
+            self.memory_editor = editor;
         }
 
         if let Some((address, size)) = self.memory_request {
