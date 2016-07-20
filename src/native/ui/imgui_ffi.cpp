@@ -899,6 +899,8 @@ static int textEditCallbackStub(ImGuiTextEditCallbackData* data) {
     callbackData.buf = data->Buf;
     callbackData.buf_size = int(data->BufSize);
     callbackData.buf_dirty = data->BufDirty;
+    callbackData.event_char = data->EventChar;
+    callbackData.event_flag = data->EventFlag;
     callbackData.flags = PDUIInputTextFlags(data->Flags);
     callbackData.cursor_pos = data->CursorPos;
     callbackData.selection_start = data->SelectionStart;
@@ -918,12 +920,13 @@ static int textEditCallbackStub(ImGuiTextEditCallbackData* data) {
     data->Buf = callbackData.buf;
     data->BufSize = (int)callbackData.buf_size;
     data->BufDirty = callbackData.buf_dirty;
+    data->EventChar = callbackData.event_char;
     data->Flags = ImGuiInputTextFlags(callbackData.flags);
     data->CursorPos = callbackData.cursor_pos;
     data->SelectionStart = callbackData.selection_start;
     data->SelectionEnd   = callbackData.selection_end;
 
-    return 1;
+    return 0;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

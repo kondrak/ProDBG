@@ -305,6 +305,26 @@ impl<'a> InputTextCallbackData<'a> {
     pub fn set_cursor_pos(&mut self, pos: i32) {
         self.0.cursor_pos = pos
     }
+
+    /// Returns input character. Returns `\u{0}` for no character. Returns `None` if character is
+    /// not valid UTF-16 character or it requires more than 1 UTF-16 character to be encoded.
+    pub fn get_event_char(&self) -> Option<char> {
+        ::std::char::decode_utf16(Some(self.0.event_char as u16))
+            .next()
+            .and_then(|res| res.ok())
+    }
+
+    /// Change input character. Set to `\u{0}` to cancel input. Will not be changed if character
+    /// `c` cannot be encoded into single UTF-16 character.
+    pub fn set_event_char(&mut self, c: char) {
+        if c.len_utf16() == 1 {
+            self.0.event_char = c as u16;
+        }
+    }
+
+    pub fn get_event_flag(&self) -> i32 {
+        self.0.event_flag as i32
+    }
 }
 
 impl Ui {
@@ -512,7 +532,6 @@ impl Ui {
 
     #[inline]
     // callback is not called the same frame as input was created
-    // TODO: should we use static dispatch here?
     pub fn input_text(&self, label: &str, buf: &mut [u8], flags: i32, callback: Option<&FnMut(InputTextCallbackData)>) -> bool {
         unsafe {
             let c_label = CFixedString::from_str(label).as_ptr();
