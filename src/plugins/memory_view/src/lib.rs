@@ -10,12 +10,13 @@ mod helper;
 use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, PDVec2, InputTextFlags, ImGuiStyleVar, EventType, ImGuiCol, Color, ReadStatus};
 use prodbg_api::PDUIWINDOWFLAGS_HORIZONTALSCROLLBAR;
 use std::str;
-use number_view::{NumberView, NumberRepresentation, NumberSize, Endianness};
+use number_view::{NumberView, NumberRepresentation, Endianness};
 use hex_editor::HexEditor;
 use ascii_editor::AsciiEditor;
 use helper::get_text_cursor_index;
 
 const START_ADDRESS: usize = 0xf0000;
+const CHARS_PER_ADDRESS: usize = 10;
 const TABLE_SPACING: &'static str = "  ";
 const COLUMNS_SPACING: &'static str = " ";
 // TODO: change to Color when `const fn` is in stable Rust
@@ -75,6 +76,13 @@ impl Editor {
             _ => None,
         }
     }
+
+    fn hex(&mut self) -> Option<&mut HexEditor> {
+        match self {
+            &mut Editor::Hex(ref mut e) => Some(e),
+            _ => None,
+        }
+    }
 }
 
 const COLUMNS_TEXT_VARIANTS: [&'static str; 9] = ["Fit width", "1 column", "2 columns", "4 columns", "8 columns", "16 columns", "32 columns", "64 columns", "128 columns"];
@@ -85,19 +93,18 @@ struct MemoryView {
     bytes_requested: usize,
     start_address: InputText,
     columns: usize,
-    chars_per_address: usize,
     memory_editor: Editor,
     memory_request: Option<(usize, usize)>,
-    number_view: NumberView,
+    number_view: Option<NumberView>,
     text_shown: bool,
 }
 
 impl MemoryView {
     fn render_address(ui: &mut Ui, address: usize) {
-        ui.text(&format!("{:#010x}", address));
+        ui.text(&format!("{:#0width$x}", address, width = CHARS_PER_ADDRESS));
     }
 
-    fn render_number(ui: &mut Ui, text: &str) -> Option<usize> {
+    fn render_const_number(ui: &mut Ui, text: &str) -> Option<usize> {
         ui.text(text);
         if ui.is_item_hovered() && ui.is_mouse_clicked(0, false) {
             return Some(get_text_cursor_index(ui, text.len()));
@@ -174,17 +181,11 @@ impl MemoryView {
         writer.event_end();
     }
 
-    fn render_line(editor: &mut Editor, ui: &mut Ui, address: usize, data: &mut [u8], prev_data: &[u8], view: NumberView, writer: &mut Writer, columns: usize, text_shown: bool) -> Option<Editor> {
-        //TODO: Hide editor when user clicks somewhere else
-        MemoryView::render_address(ui, address);
-        ui.same_line(0, -1);
-        ui.text(TABLE_SPACING);
-        ui.same_line(0, -1);
-
+    fn render_numbers(ui: &mut Ui, mut editor: Option<&mut HexEditor>, address: usize, data: &mut [u8], prev_data: &[u8], view: NumberView, columns: usize) -> (Option<HexEditor>, Option<(usize, usize)>) {
         let bytes_per_unit = view.size.byte_count();
+        let mut next_editor = None;
+        let mut changed_data = None;
         let mut cur_address = address;
-        let mut res = None;
-        let mut new_data = None;
         {
             let mut data_chunks = data.chunks_mut(bytes_per_unit);
             let mut prev_data_chunks = prev_data.chunks(bytes_per_unit);
@@ -200,32 +201,28 @@ impl MemoryView {
                             ui.push_style_color(ImGuiCol::Text, Color::from_u32(CHANGED_DATA_COLOR));
                         }
                         let mut is_editor = false;
-                        if let &mut Editor::Hex(ref mut e) = editor {
+                        if let Some(ref mut e) = editor {
                             if e.is_at_address(cur_address) {
                                 let (np, data_edited) = e.render(ui, *unit);
-                                res = res.or(np.map(|(address, cursor)|
-                                    Editor::Hex(HexEditor::new(address, cursor, view))
+                                next_editor = next_editor.or(np.map(|(address, cursor)|
+                                    HexEditor::new(address, cursor, view)
                                 ));
                                 if data_edited {
-                                    new_data = Some((cur_address, bytes_per_unit));
+                                    changed_data = Some((cur_address, bytes_per_unit));
                                 }
                                 is_editor = true;
                             }
                         }
                         if !is_editor {
-                            if let Some(index) = MemoryView::render_number(ui, &view.format(*unit)) {
-                                if view.representation == NumberRepresentation::Hex {
-                                    res = Some(Editor::Hex(HexEditor::new(cur_address, index, view)));
-                                }
+                            if let Some(index) = MemoryView::render_const_number(ui, &view.format(*unit)) {
+                                next_editor = next_editor.or(Some(HexEditor::new(cur_address, index, view)));
                             }
                         }
                         if has_changed {
                             ui.pop_style_color(1);
                         }
                     },
-                    _ => {
-                        MemoryView::render_inaccessible_memory(ui, view.maximum_chars_needed());
-                    }
+                    _ => MemoryView::render_inaccessible_memory(ui, view.maximum_chars_needed())
                 }
                 if column < columns - 1 {
                     ui.same_line(0, -1);
@@ -234,14 +231,32 @@ impl MemoryView {
                 cur_address += bytes_per_unit as usize;
             }
         }
+        (next_editor, changed_data)
+    }
+
+    fn render_line(editor: &mut Editor, ui: &mut Ui, address: usize, data: &mut [u8], prev_data: &[u8], view: Option<NumberView>, writer: &mut Writer, columns: usize, text_shown: bool) -> Option<Editor> {
+        //TODO: Hide editor when user clicks somewhere else
+        MemoryView::render_address(ui, address);
+
+        let mut new_data = None;
+        let mut res = None;
+        if let Some(view) = view {
+            ui.same_line(0, -1);
+            ui.text(TABLE_SPACING);
+            let (hex_editor, hex_data) = MemoryView::render_numbers(ui, editor.hex(), address, data, prev_data, view, columns);
+            res = res.or(hex_editor.map(|editor| Editor::Hex(editor)));
+            new_data = new_data.or(hex_data);
+        }
         if text_shown {
             ui.same_line(0, -1);
             ui.text(TABLE_SPACING);
-            let ascii_res = MemoryView::render_ascii_string(ui, address, data, prev_data, columns * bytes_per_unit, editor.text());
-            if let Some(next_editor) = ascii_res.0 {
-                res = Some(Editor::Text(next_editor));
-            }
-            new_data = new_data.or(ascii_res.1);
+            let line_len = columns * match view {
+                Some(ref v) => v.size.byte_count(),
+                _ => 1,
+            };
+            let (ascii_editor, ascii_data) = MemoryView::render_ascii_string(ui, address, data, prev_data, line_len, editor.text());
+            res = res.or_else(|| ascii_editor.map(|editor| Editor::Text(editor)));
+            new_data = new_data.or(ascii_data);
         }
         if let Some((abs_address, size)) = new_data {
             let offset = abs_address - address;
@@ -250,49 +265,60 @@ impl MemoryView {
         return res;
     }
 
-    fn change_number_view(&mut self, view: NumberView) {
-        self.number_view = view;
-        self.memory_editor = Editor::None;
-    }
-
     fn render_number_view_picker(&mut self, ui: &mut Ui) {
         let mut view = self.number_view;
         let mut view_is_changed = false;
         let mut current_item;
 
-        let strings = NumberRepresentation::names();
-        current_item = view.representation.as_usize();
+        let variants = [NumberRepresentation::Hex, NumberRepresentation::UnsignedDecimal,
+            NumberRepresentation::SignedDecimal, NumberRepresentation::Float];
+        let strings = ["Off", variants[0].as_str(), variants[1].as_str(), variants[2].as_str(), variants[3].as_str()];
+        current_item = match view {
+            Some(v) => variants.iter().position(|var| *var == v.representation).unwrap_or(0) + 1,
+            None => 0,
+        };
         // TODO: should we calculate needed width from strings?
         ui.push_item_width(200.0);
-        if ui.combo("##number_representation", &mut current_item, strings, strings.len(), strings.len()) {
-            view.change_representation(NumberRepresentation::from_usize(current_item));
+        if ui.combo("##number_representation", &mut current_item, &strings, strings.len(), strings.len()) {
+            if current_item == 0 {
+                view = None;
+            } else {
+                match view {
+                    Some(ref mut v) => v.change_representation(variants[current_item - 1]),
+                    None => view = Some(NumberView::default()),
+                }
+
+            }
             view_is_changed = true;
         }
         ui.pop_item_width();
 
-        let available_sizes = view.representation.get_avaialable_sizes();
-        let strings: Vec<&str> = available_sizes.iter().map(|size| size.as_str()).collect();
-        current_item = available_sizes.iter().position(|x| *x == view.size).unwrap_or(0);
-        ui.same_line(0, -1);
-        ui.push_item_width(100.0);
-        if ui.combo("##number_size", &mut current_item, &strings, available_sizes.len(), available_sizes.len()) {
-            view.size = *available_sizes.get(current_item).unwrap_or_else(|| available_sizes.first().unwrap());
-            view_is_changed = true;
-        }
-        ui.pop_item_width();
+        if let Some(ref mut view) = view {
+            let available_sizes = view.representation.get_avaialable_sizes();
+            let strings: Vec<&str> = available_sizes.iter().map(|size| size.as_str()).collect();
+            current_item = available_sizes.iter().position(|x| *x == view.size).unwrap_or(0);
+            ui.same_line(0, -1);
+            ui.push_item_width(100.0);
+            if ui.combo("##number_size", &mut current_item, &strings, available_sizes.len(), available_sizes.len()) {
+                view.size = *available_sizes.get(current_item).unwrap_or_else(|| available_sizes.first().unwrap());
+                view_is_changed = true;
+            }
+            ui.pop_item_width();
 
-        let strings = Endianness::names();
-        current_item = view.endianness.as_usize();
-        ui.same_line(0, -1);
-        ui.push_item_width(200.0);
-        if ui.combo("##endianness", &mut current_item, strings, strings.len(), strings.len()) {
-            view.endianness = Endianness::from_usize(current_item);
-            view_is_changed = true;
+            let strings = Endianness::names();
+            current_item = view.endianness.as_usize();
+            ui.same_line(0, -1);
+            ui.push_item_width(200.0);
+            if ui.combo("##endianness", &mut current_item, strings, strings.len(), strings.len()) {
+                view.endianness = Endianness::from_usize(current_item);
+                view_is_changed = true;
+            }
+            ui.pop_item_width();
         }
-        ui.pop_item_width();
 
         if view_is_changed {
-            self.change_number_view(view);
+            self.number_view = view;
+            self.memory_editor = Editor::None;
         }
     }
 
@@ -376,39 +402,45 @@ impl MemoryView {
     fn get_columns_from_width(&self, ui: &Ui) -> usize {
         // TODO: ImGui reports inaccurate glyph size. Find a better way to find chars_in_screen.
         let glyph_size = ui.calc_text_size("ff", 0).0 / 2.0;
-        let chars_in_screen = (ui.get_window_size().0 / glyph_size) as usize;
-        let chars_left = if self.text_shown {
-            chars_in_screen.saturating_sub(2 * TABLE_SPACING.len() + self.chars_per_address)
+        let mut chars_left = (ui.get_window_size().0 / glyph_size) as usize;
+        // Number of large columns (for numbers, text)
+        let mut large_columns: usize = 0;
+        // Number of chars per one rendered column
+        let mut chars_per_column = 0;
+        if let Some(ref view) = self.number_view {
+            large_columns += 1;
+            // Every number is fixed number of chars + spacing between them
+            chars_per_column += view.maximum_chars_needed() + COLUMNS_SPACING.len();
+        }
+        if self.text_shown {
+            large_columns += 1;
+            // One char per byte.
+            chars_per_column += match self.number_view {
+                Some(ref view) => view.size.byte_count(),
+                None => 1
+            }
+        }
+        chars_left = chars_left.saturating_sub(large_columns * TABLE_SPACING.len() + CHARS_PER_ADDRESS);
+        if chars_per_column > 0 {
+            std::cmp::max(chars_left / chars_per_column, 1)
         } else {
-            chars_in_screen.saturating_sub(TABLE_SPACING.len() + self.chars_per_address)
-        };
-        let chars_per_unit = if self.text_shown {
-            // Number of chars we need to draw one unit: number view, space, text view
-            self.number_view.maximum_chars_needed() + COLUMNS_SPACING.len() + self.number_view.size.byte_count()
-        } else {
-            self.number_view.maximum_chars_needed() + COLUMNS_SPACING.len()
-        };
-        return std::cmp::max(chars_left / chars_per_unit, 1);
+            // Neither number nor text view is shown
+            1
+        }
     }
 }
 
 impl View for MemoryView {
     fn new(_: &Ui, _: &Service) -> Self {
-        let view = NumberView {
-            representation: NumberRepresentation::Hex,
-            size: NumberSize::OneByte,
-            endianness: Endianness::default(),
-        };
         MemoryView {
             data: Vec::new(),
             prev_data: Vec::new(),
             start_address: InputText::new(START_ADDRESS),
             bytes_requested: 0,
             columns: 0,
-            chars_per_address: 10,
             memory_editor: Editor::None,
             memory_request: None,
-            number_view: view,
+            number_view: Some(NumberView::default()),
             text_shown: true,
         }
     }
@@ -421,8 +453,10 @@ impl View for MemoryView {
             0 => self.get_columns_from_width(ui),
             x => x,
         };
-        let bytes_per_line = columns * self.number_view.size.byte_count();
-
+        let bytes_per_line = columns * match self.number_view {
+            Some(ref view) => view.size.byte_count(),
+            None => 1,
+        };
         ui.push_style_var_vec(ImGuiStyleVar::ItemSpacing, PDVec2 {x: 0.0, y: 0.0});
         let line_height = ui.get_text_line_height_with_spacing();
         let (start, end) = ui.calc_list_clipping(line_height);

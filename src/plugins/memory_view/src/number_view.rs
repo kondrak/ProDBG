@@ -128,6 +128,16 @@ impl NumberView {
     }
 }
 
+impl Default for NumberView {
+    fn default() -> NumberView {
+        NumberView {
+            representation: NumberRepresentation::Hex,
+            size: NumberSize::OneByte,
+            endianness: Endianness::default(),
+        }
+    }
+}
+
 impl NumberSize {
     /// String representation of this `NumberSize`
     pub fn as_str(&self) -> &'static str {
@@ -150,39 +160,10 @@ impl NumberSize {
     }
 }
 
-static NUMBER_REPRESENTATION_NAMES: [&'static str; 4] = ["Hex", "Unsigned decimal", "Signed decimal", "Float"];
 static FLOAT_AVAILABLE_SIZES: [NumberSize; 2] = [NumberSize::FourBytes, NumberSize::EightBytes];
-static OTHER_AVAILABLE_SIZES: [NumberSize; 4] = [NumberSize::OneByte, NumberSize::TwoBytes, NumberSize::FourBytes, NumberSize::EightBytes];
+static OTHER_AVAILABLE_SIZES: [NumberSize; 4] = [NumberSize::OneByte, NumberSize::TwoBytes,
+    NumberSize::FourBytes, NumberSize::EightBytes];
 impl NumberRepresentation {
-    // TODO: make this example work as test. Could not run it as a test using `cargo test`
-    /// Converts this number into index, which matches `NumberRepresentation::names()`
-    /// # Examples
-    /// ```
-    /// use NumberRepresentation;
-    /// let names = NumberRepresentation::names();
-    /// assert_eq!("Hex", names[NumberRepresentation::Hex.as_usize()]);
-    /// ```
-    pub fn as_usize(&self) -> usize {
-        match *self {
-            NumberRepresentation::Hex => 0,
-            NumberRepresentation::UnsignedDecimal => 1,
-            NumberRepresentation::SignedDecimal => 2,
-            NumberRepresentation::Float => 3,
-        }
-    }
-
-    /// Converts index into `NumberRepresentation`. Uses `NumberRepresentation::Hex` if index does
-    /// not match any.
-    pub fn from_usize(id: usize) -> NumberRepresentation {
-        match id {
-            0 => NumberRepresentation::Hex,
-            1 => NumberRepresentation::UnsignedDecimal,
-            2 => NumberRepresentation::SignedDecimal,
-            3 => NumberRepresentation::Float,
-            _ => NumberRepresentation::Hex,
-        }
-    }
-
     pub fn can_be_of_size(&self, size: NumberSize) -> bool {
         match *self {
             NumberRepresentation::Float => match size {
@@ -208,10 +189,13 @@ impl NumberRepresentation {
         }
     }
 
-    /// Returns names for all possible representations. Index matches
-    /// `NumberRepresentation::as_usize`.
-    pub fn names() -> &'static [&'static str] {
-        &NUMBER_REPRESENTATION_NAMES
+    pub fn as_str(&self) -> &'static str {
+        match *self {
+            NumberRepresentation::Hex => "Hex",
+            NumberRepresentation::UnsignedDecimal => "Unsigned decimal",
+            NumberRepresentation::SignedDecimal => "Signed decimal",
+            NumberRepresentation::Float => "Float",
+        }
     }
 }
 
