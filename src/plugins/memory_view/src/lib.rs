@@ -383,6 +383,55 @@ impl MemoryView {
             1
         }
     }
+
+    fn get_screen_lines_count(ui: &Ui) -> usize {
+        let line_height = ui.get_text_line_height_with_spacing();
+        let (start, end) = ui.calc_list_clipping(line_height);
+        // Strip last line to make sure vertical scrollbar will not appear
+        end.saturating_sub(start + 1)
+    }
+
+    fn render(&mut self, ui: &mut Ui, writer: &mut Writer) {
+        self.render_header(ui);
+        let columns = match self.columns {
+            0 => self.get_columns_from_width(ui),
+            x => x,
+        };
+        let bytes_per_line = columns * match self.number_view {
+            Some(ref view) => view.size.byte_count(),
+            None => 1,
+        };
+
+        ui.push_style_var_vec(ImGuiStyleVar::ItemSpacing, PDVec2 {x: 0.0, y: 0.0});
+        ui.begin_child("##lines", None, false, PDUIWINDOWFLAGS_HORIZONTALSCROLLBAR);
+
+        let lines_needed = MemoryView::get_screen_lines_count(ui);
+        let bytes_needed = bytes_per_line * lines_needed;
+        if bytes_needed > self.bytes_requested {
+            self.memory_request = Some((self.start_address.get_value(), bytes_needed));
+        }
+
+        let mut address = self.start_address.get_value();
+        let mut next_editor = None;
+        let mut lines = self.data.chunks_mut(bytes_per_line);
+        let mut prev_lines = self.prev_data.chunks(bytes_per_line);
+        for _ in 0..lines_needed {
+            let line = lines.next().unwrap_or(&mut []);
+            let prev_line = prev_lines.next().unwrap_or(&[]);
+            next_editor = next_editor.or(
+                MemoryView::render_line(&mut self.memory_editor, ui, address, line, prev_line,
+                                        self.number_view, writer, columns, self.text_shown)
+            );
+            address += bytes_per_line;
+        }
+
+        ui.end_child();
+        ui.pop_style_var(1);
+
+        if let Some(editor) = next_editor {
+            self.memory_editor = editor;
+        }
+    }
 }
 
 impl View for MemoryView {
@@ -402,48 +451,7 @@ impl View for MemoryView {
 
     fn update(&mut self, ui: &mut Ui, reader: &mut Reader, writer: &mut Writer) {
         self.process_events(reader);
-        self.render_header(ui);
-        let mut address = self.start_address.get_value();
-        let columns = match self.columns {
-            0 => self.get_columns_from_width(ui),
-            x => x,
-        };
-        let bytes_per_line = columns * match self.number_view {
-            Some(ref view) => view.size.byte_count(),
-            None => 1,
-        };
-        ui.push_style_var_vec(ImGuiStyleVar::ItemSpacing, PDVec2 {x: 0.0, y: 0.0});
-        let line_height = ui.get_text_line_height_with_spacing();
-        let (start, end) = ui.calc_list_clipping(line_height);
-        // Strip last line to make sure vertical scrollbar will not appear
-        let lines_needed = end.saturating_sub(start + 1);
-        let bytes_needed = bytes_per_line * lines_needed;
-        if bytes_needed > self.bytes_requested {
-            self.memory_request = Some((self.start_address.get_value(), bytes_needed));
-        }
-
-        ui.begin_child("##lines", None, false, PDUIWINDOWFLAGS_HORIZONTALSCROLLBAR);
-
-        let mut next_editor_position = None;
-        let mut lines = self.data.chunks_mut(bytes_per_line);
-        let mut prev_lines = self.prev_data.chunks(bytes_per_line);
-        for _ in 0..lines_needed {
-            let line = lines.next().unwrap_or(&mut []);
-            let prev_line = prev_lines.next().unwrap_or(&[]);
-            let next_position = MemoryView::render_line(&mut self.memory_editor, ui, address, line, prev_line, self.number_view, writer, columns, self.text_shown);
-            if next_position.is_some() {
-                next_editor_position = next_position;
-            }
-            address += bytes_per_line;
-        }
-
-        ui.end_child();
-        ui.pop_style_var(1);
-
-        if let Some(editor) = next_editor_position {
-            self.memory_editor = editor;
-        }
-
+        self.render(ui, writer);
         if let Some((address, size)) = self.memory_request {
             self.bytes_requested = size;
             writer.event_begin(EventType::GetMemory as u16);
