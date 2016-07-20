@@ -5,14 +5,16 @@ mod number_view;
 mod hex_editor;
 mod char_editor;
 mod ascii_editor;
+mod address_editor;
 mod helper;
 
-use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, PDVec2, InputTextFlags, ImGuiStyleVar, EventType, ImGuiCol, Color, ReadStatus};
+use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, PDVec2, ImGuiStyleVar, EventType, ImGuiCol, Color, ReadStatus};
 use prodbg_api::PDUIWINDOWFLAGS_HORIZONTALSCROLLBAR;
 use std::str;
 use number_view::{NumberView, NumberRepresentation, Endianness};
 use hex_editor::HexEditor;
 use ascii_editor::AsciiEditor;
+use address_editor::AddressEditor;
 use helper::get_text_cursor_index;
 
 const START_ADDRESS: usize = 0xf0000;
@@ -21,47 +23,6 @@ const TABLE_SPACING: &'static str = "  ";
 const COLUMNS_SPACING: &'static str = " ";
 // TODO: change to Color when `const fn` is in stable Rust
 const CHANGED_DATA_COLOR: u32 = 0xff0000ff;
-
-struct InputText {
-    // TODO: What buffer do we really need for address?
-    buf: [u8; 20],
-    value: usize,
-}
-
-impl InputText {
-    pub fn new(value: usize) -> InputText {
-        let mut res = InputText {
-            buf: [0; 20],
-            value: 0,
-        };
-        res.set_value(value);
-        return res;
-    }
-
-    pub fn render(&mut self, ui: &mut Ui) -> bool {
-        let flags = InputTextFlags::CharsHexadecimal as i32|InputTextFlags::EnterReturnsTrue as i32|InputTextFlags::NoHorizontalScroll as i32|InputTextFlags::AlwaysInsertMode as i32|InputTextFlags::AlwaysInsertMode as i32;//|InputTextFlags::CallbackAlways as i32;
-        if ui.input_text("##address", &mut self.buf, flags, None) {
-            // TODO: can we just use original buffer instead?
-            let len = self.buf.iter().position(|&b| b == 0).unwrap();
-            let slice = str::from_utf8(&self.buf[0..len]).unwrap();
-            let old_value = self.value;
-            self.value = usize::from_str_radix(slice, 16).unwrap();
-            return self.value != old_value;
-        }
-        return false;
-    }
-
-    pub fn get_value(&self) -> usize {
-        self.value
-    }
-
-    pub fn set_value(&mut self, value: usize) {
-        self.value = value;
-        let data = format!("{:08x}", value);
-        (&mut self.buf[0..data.len()]).copy_from_slice(data.as_bytes());
-        self.buf[data.len() + 1] = 0;
-    }
-}
 
 enum Editor {
     Hex(HexEditor),
@@ -91,7 +52,7 @@ struct MemoryView {
     data: Vec<u8>,
     prev_data: Vec<u8>,
     bytes_requested: usize,
-    start_address: InputText,
+    start_address: AddressEditor,
     columns: usize,
     memory_editor: Editor,
     memory_request: Option<(usize, usize)>,
@@ -332,15 +293,9 @@ impl MemoryView {
     }
 
     fn render_header(&mut self, ui: &mut Ui) {
-        ui.text("0x");
-        ui.same_line(0, 0);
-        ui.push_style_var_vec(ImGuiStyleVar::FramePadding, PDVec2{x: 1.0, y: 0.0});
-        ui.push_item_width(ui.calc_text_size("00000000", 0).0 + 2.0);
         if self.start_address.render(ui) {
             self.memory_request = Some((self.start_address.get_value(), self.bytes_requested));
         }
-        ui.pop_item_width();
-        ui.pop_style_var(1);
         ui.same_line(0, -1);
         self.render_number_view_picker(ui);
         ui.same_line(0, -1);
@@ -435,7 +390,7 @@ impl View for MemoryView {
         MemoryView {
             data: Vec::new(),
             prev_data: Vec::new(),
-            start_address: InputText::new(START_ADDRESS),
+            start_address: AddressEditor::new(START_ADDRESS),
             bytes_requested: 0,
             columns: 0,
             memory_editor: Editor::None,
@@ -448,7 +403,7 @@ impl View for MemoryView {
     fn update(&mut self, ui: &mut Ui, reader: &mut Reader, writer: &mut Writer) {
         self.process_events(reader);
         self.render_header(ui);
-        let mut address = self.start_address.value;
+        let mut address = self.start_address.get_value();
         let columns = match self.columns {
             0 => self.get_columns_from_width(ui),
             x => x,
