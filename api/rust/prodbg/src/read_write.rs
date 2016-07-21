@@ -39,7 +39,7 @@ pub struct CPDReaderAPI {
                                     it: c_ulonglong) -> c_uint,
     pub read_find_string: extern fn(reader: *mut c_void, res: *mut *const c_char, id: *const c_char,
                                     it: c_ulonglong) -> c_uint,
-    pub read_find_data: extern fn(reader: *mut c_void, data: *mut *const c_void, size: *mut c_ulonglong,
+    pub read_find_data: extern fn(reader: *mut c_void, data: *mut *mut c_void, size: *mut c_ulonglong,
                                   id: *const c_char, it: c_ulonglong) -> c_uint,
     pub read_find_array: extern fn(reader: *mut c_void, arrayIt: *mut c_ulonglong, id: *const c_char,
                                    it: c_ulonglong) -> c_uint,
@@ -140,14 +140,6 @@ impl Clone for Reader {
     }
 }
 
-fn status_error(s: u32) -> Option<ReadStatus> {
-    match (s >> 8) & 0xff {
-        1...2 => None,
-        3 => Some(ReadStatus::IllegalType),
-        _ => Some(ReadStatus::NotFound),
-    }
-}
-
 fn status_res<T>(res: T, s: u32) -> Result<T, ReadStatus> {
     match (s >> 8) & 0xff {
         1...2 => Ok(res),
@@ -221,21 +213,6 @@ impl Reader {
         }
 
         count
-    }
-
-    // Lifetime added for convenience here since we construct slice from raw pointers
-    pub fn find_data<'a>(&'a self, id: &str) -> Result<&'a [u8], ReadStatus> {
-        unsafe {
-            let mut start = 0 as *const u8;
-            let mut length = 0 as c_ulonglong;
-            let id = CFixedString::from_str(id).as_ptr();
-            let res = ((*self.api).read_find_data)(transmute(self.api), transmute(&mut start), &mut length, id, 0);
-            let error = status_error(res);
-            if let Some(err) = error {
-                return Err(err);
-            }
-            return Ok(slice::from_raw_parts(start, length as usize));
-        }
     }
 
     pub fn find_string(&self, id: &str) -> Result<&str, ReadStatus> {
