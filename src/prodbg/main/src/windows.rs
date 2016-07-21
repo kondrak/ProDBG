@@ -1,21 +1,25 @@
 extern crate minifb;
-extern crate bgfx_rs;
+extern crate bgfx;
 extern crate viewdock;
+extern crate renderer;
 
-use bgfx_rs::Bgfx;
 use minifb::{CursorStyle, Scale, WindowOptions, MouseMode, MouseButton, Key, KeyRepeat};
+use renderer::Renderer;
 use core::view_plugins::{ViewHandle, ViewPlugins, ViewInstance};
 use core::backend_plugin::{BackendPlugins};
 use core::session::{Sessions, Session, SessionHandle};
 use core::reader_wrapper::ReaderWrapper;
 use self::viewdock::{Workspace, Rect, Direction, DockHandle, SizerPos, Dock, ItemTarget};
 use settings::Settings;
+use std::fs::File;
+use std::io;
 use menu::*;
 use imgui_sys::Imgui;
 use prodbg_api::ui_ffi::{PDVec2, ImguiKey};
 use prodbg_api::view::CViewCallbacks;
-use std::os::raw::{c_void, c_int};
+use std::os::raw::{c_void};
 use std::collections::VecDeque;
+use std::io::{Read, Write};
 //use std::mem::transmute;
 
 const WIDTH: i32 = 1280;
@@ -89,12 +93,14 @@ pub struct Windows {
     /// All the windows being tracked
     windows: Vec<Window>,
     current: usize,
+    renderer: Renderer,
 }
 
 impl Windows {
     pub fn new() -> Windows {
         Windows {
             windows: Vec::new(),
+            renderer: Renderer::new(),
             current: 0,
         }
     }
@@ -105,14 +111,14 @@ impl Windows {
             return;
         }
 
-        let window = Self::create_window_with_menus(settings).expect("Unable to create window");
+        let window = self.create_window_with_menus(settings).expect("Unable to create window");
 
         Self::setup_imgui_key_mappings();
 
         self.windows.push(window)
     }
 
-    pub fn create_window(width: usize, height: usize) -> minifb::Result<Window> {
+    pub fn create_window(&mut self, width: usize, height: usize) -> minifb::Result<Window> {
         let win = try!(minifb::Window::new("ProDBG",
                                       width,
                                       height,
@@ -121,12 +127,14 @@ impl Windows {
                                           scale: Scale::X1,
                                           ..WindowOptions::default()
                                       }));
-        Bgfx::create_window(win.get_window_handle() as *const c_void,
-                            width as c_int,
-                            height as c_int);
+        // TODO: Return correctly
+        self.renderer.setup_window(win.get_window_handle(), width as u16, height as u16).unwrap();
+
         let ws = Workspace::new(Rect::new(0.0, 0.0, width as f32, (height - 20) as f32));
         let mut ws_states = VecDeque::with_capacity(WORKSPACE_UNDO_LIMIT);
+
         ws_states.push_back(ws.save_state());
+
         return Ok(Window {
             win: win,
             menu: Menu::new(),
@@ -141,12 +149,12 @@ impl Windows {
         });
     }
 
-    pub fn create_window_with_menus(settings: &Settings) -> minifb::Result<Window> {
+    pub fn create_window_with_menus(&mut self, settings: &Settings) -> minifb::Result<Window> {
 
         let width = settings.get_int("window_size", "width").unwrap_or(WIDTH) as usize;
         let height = settings.get_int("window_size", "height").unwrap_or(HEIGHT) as usize;
 
-        let mut window = try!(Self::create_window(width, height));
+        let mut window = try!(self.create_window(width, height));
 
         window.win.set_input_callback(Box::new(KeyCharCallback {}));
 
@@ -162,13 +170,24 @@ impl Windows {
                   sessions: &mut Sessions,
                   view_plugins: &mut ViewPlugins,
                   backend_plugins: &mut BackendPlugins) {
+        for win in &mut self.windows {
+            win.pre_update();
+        }
+
+        self.renderer.pre_update();
+
         for i in (0..self.windows.len()).rev() {
             self.windows[i].update(sessions, view_plugins, backend_plugins);
+            self.renderer.update_size(self.windows[i].win.get_size());
 
             if !self.windows[i].win.is_open() {
+                // TODO: Support more than one window
+                let _ = self.windows[i].save_layout("data/user_layout.json", view_plugins);
                 self.windows.swap_remove(i);
             }
         }
+
+        self.renderer.post_update();
     }
 
     pub fn get_current(&mut self) -> &mut Window {
@@ -182,10 +201,24 @@ impl Windows {
     }
 
     /// Save the state of the windows (usually done when exiting the application)
-    pub fn save(_filename: &str) {}
+    pub fn save(&mut self, filename: &str, view_plugins: &mut ViewPlugins) {
+        println!("window len {}", self.windows.len());
+        // TODO: This only supports one window for now
+        if self.windows.len() == 1 {
+            // TODO: Proper error handling here
+            println!("save layout");
+            self.windows[0].save_layout(filename, view_plugins).unwrap();
+        }
+    }
 
     /// Load the state of all the views from a previous run
-    pub fn load(_filename: &str) {}
+    pub fn load(&mut self, filename: &str, view_plugins: &mut ViewPlugins) {
+        // TODO: This only supports one window for now
+        if self.windows.len() == 1 {
+            // TODO: Proper error handling here (loading is ok to fail though)
+            let _ = self.windows[0].load_layout(filename, view_plugins);
+        }
+    }
 
     fn setup_imgui_key_mappings() {
         Imgui::map_key(ImguiKey::Tab as usize, Key::Tab as usize);
@@ -481,6 +514,15 @@ impl Window {
         });
     }
 
+    pub fn pre_update(&mut self) {
+        let mouse = self.win.get_mouse_pos(MouseMode::Clamp).unwrap_or((0.0, 0.0));
+        Imgui::set_mouse_pos(mouse);
+        Imgui::set_mouse_state(0, self.win.get_mouse_down(MouseButton::Left));
+        if let Some(scroll) = self.win.get_scroll_wheel() {
+            Imgui::set_scroll(scroll.1 * 0.25);
+        }
+    }
+
     pub fn update(&mut self,
                   sessions: &mut Sessions,
                   view_plugins: &mut ViewPlugins,
@@ -489,20 +531,16 @@ impl Window {
         let mut has_shown_menu = 0u32;
 
         let win_size = self.win.get_size();
-        Bgfx::update_window_size(win_size.0 as i32, win_size.1 as i32);
+
+        let mouse = self.win.get_mouse_pos(MouseMode::Clamp).unwrap_or((0.0, 0.0));
+
+        if has_shown_menu == 0 {
+            self.update_mouse_state(mouse);
+        }
 
         self.win.update();
         self.ws.update_rect(Rect::new(0.0, 0.0, win_size.0 as f32, win_size.1 as f32));
         self.update_key_state();
-
-        let mouse = self.win.get_mouse_pos(MouseMode::Clamp).unwrap_or((0.0, 0.0));
-
-        if has_shown_menu==0 {
-            self.update_mouse_state(mouse);
-        }
-
-        Imgui::set_mouse_pos(mouse);
-        Imgui::set_mouse_state(0, self.win.get_mouse_down(MouseButton::Left));
 
         let show_context_menu = self.win.get_mouse_down(MouseButton::Right);
         if show_context_menu {
@@ -754,8 +792,12 @@ impl Window {
         }
     }
 
-    /*
-    fn save_layout(&mut self, filename: &str, view_plugins: &mut ViewPlugins) {
+    pub fn save_layout(&mut self, filename: &str, _view_plugins: &mut ViewPlugins) -> io::Result<()> {
+        let mut file = try!(File::create(filename));
+        let state = self.ws.save_state();
+        println!("writing state to disk");
+        file.write_all(state.as_str().as_bytes())
+        /*
         for split in &mut self.ws.splits {
             let iter = split.left_docks.docks.iter_mut().chain(split.right_docks.docks.iter_mut());
 
@@ -771,21 +813,39 @@ impl Window {
         }
 
         let _ = self.ws.save(filename);
+        */
     }
 
-    fn load_layout(&mut self, filename: &str, view_plugins: &mut ViewPlugins) {
-        let ws = Workspace::load(filename);
-        let docks = ws.get_docks();
-        self.views.clear();
+    pub fn load_layout(&mut self, filename: &str, view_plugins: &mut ViewPlugins) -> io::Result<()> {
+        let mut data = "".to_owned();
 
+        let mut file = try!(File::open(filename));
+        try!(file.read_to_string(&mut data));
+
+        self.ws = Workspace::from_state(&data);
+
+        let docks = self.ws.get_docks();
+
+        // TODO: Move this code to seprate file and make it generic (copy'n'paste currently)
         for dock in &docks {
-            let ui = Imgui::create_ui_instance();
-            let handle = ViewHandle(dock.handle.0);
-            view_plugins.create_instance_with_handle(ui, &dock.plugin_name, &dock.plugin_data, SessionHandle(0), ViewHandle(dock.handle.0));
-            self.views.push(handle);
+            let mut new_view_handles: Vec<ViewHandle> = Vec::new();
+            if !self.views.iter().find(|view| view.0 == dock.handle.0).is_some() {
+                let ui = Imgui::create_ui_instance();
+                if let Some(handle) = view_plugins.create_instance_with_handle(
+                    ui,
+                    &dock.plugin_name,
+                    &dock.plugin_data,
+                    SessionHandle(0),
+                    ViewHandle(dock.handle.0)
+                ) {
+                    new_view_handles.push(handle);
+                } else {
+                    panic!("Could not restore view");
+                }
+            }
+            self.views.extend(new_view_handles);
         }
 
-        self.ws = ws;
+        Ok(())
     }
-    */
 }
