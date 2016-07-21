@@ -1,6 +1,9 @@
 //! Editor that only allows changing characters. It could be just a function `CharEditor::render`
 //! but setting focus to editor requires 2 frames so editor has to remember whether it should set
 //! focus or not.
+//! Since ImGui does not have functionality to change text cursor style, `CharEditor` renders any
+//! text before and after the cursor as bare text and only one symbol under the cursor is rendered
+//! as actual input.
 
 use prodbg_api::{Ui, PDVec2, InputTextFlags, ImGuiStyleVar, InputTextCallbackData, Key};
 use helper::get_text_cursor_index;

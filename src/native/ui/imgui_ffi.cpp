@@ -1624,6 +1624,12 @@ static void set_mouse_cursor(PDUIMouseCursor type) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+static float get_mouse_wheel() {
+    return ImGui::GetIO().MouseWheel;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 static void fill_rect(PDRect rect, PDColor color) {
     ImGui::FillRect(ImVec2(rect.x, rect.y), ImVec2(rect.width, rect.height), color);
 }
@@ -1993,6 +1999,7 @@ static PDUI s_uiFuncs[] =
     reset_mouse_drag_delta,
     get_mouse_cursor,
     set_mouse_cursor,
+    get_mouse_wheel,
 
     // Rendering
 

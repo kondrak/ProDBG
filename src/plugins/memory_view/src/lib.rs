@@ -8,7 +8,7 @@ mod ascii_editor;
 mod address_editor;
 mod helper;
 
-use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, PDVec2, ImGuiStyleVar, EventType, ImGuiCol, Color, ReadStatus};
+use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, PDVec2, ImGuiStyleVar, EventType, ImGuiCol, Color, ReadStatus, Key};
 use prodbg_api::PDUIWINDOWFLAGS_HORIZONTALSCROLLBAR;
 use std::str;
 use number_view::{NumberView, NumberRepresentation, Endianness};
@@ -23,24 +23,56 @@ const TABLE_SPACING: &'static str = "  ";
 const COLUMNS_SPACING: &'static str = " ";
 // TODO: change to Color when `const fn` is in stable Rust
 const CHANGED_DATA_COLOR: u32 = 0xff0000ff;
+const LINES_PER_SCROLL: usize = 3;
 
+/// Enum that acts as cursor for current memory editor.
 enum Editor {
+    /// Number area is edited right now. `HexEditor` structure contains inner data about focusing
+    /// and exact cursor position
     Hex(HexEditor),
+    /// Text area is edited right now. `AsciiEditor` structure contains inner data about focusing
+    /// and exact cursor position
     Text(AsciiEditor),
+    /// Memory is not edited right now
     None,
 }
 
 impl Editor {
-    fn text(&mut self) -> Option<&mut AsciiEditor> {
+    pub fn text(&mut self) -> Option<&mut AsciiEditor> {
         match self {
             &mut Editor::Text(ref mut e) => Some(e),
             _ => None,
         }
     }
 
-    fn hex(&mut self) -> Option<&mut HexEditor> {
+    pub fn hex(&mut self) -> Option<&mut HexEditor> {
         match self {
             &mut Editor::Hex(ref mut e) => Some(e),
+            _ => None,
+        }
+    }
+
+    pub fn decrease_address(&mut self, delta: usize) {
+        match self {
+            &mut Editor::Text(ref mut e) => e.address = e.address.saturating_sub(delta),
+            &mut Editor::Hex(ref mut e) => e.address = e.address.saturating_sub(delta),
+            _ => {}
+        }
+    }
+
+    pub fn increase_address(&mut self, delta: usize) {
+        match self {
+            &mut Editor::Text(ref mut e) => e.address = e.address.saturating_add(delta),
+            &mut Editor::Hex(ref mut e) => e.address = e.address.saturating_add(delta),
+            _ => {}
+        }
+    }
+
+    /// Returns memory address edited right now, if any.
+    pub fn get_address(&self) -> Option<usize> {
+        match self {
+            &Editor::Text(ref e) => Some(e.address),
+            &Editor::Hex(ref e) => Some(e.address),
             _ => None,
         }
     }
@@ -163,7 +195,7 @@ impl MemoryView {
                         }
                         let mut is_editor = false;
                         if let Some(ref mut e) = editor {
-                            if e.is_at_address(cur_address) {
+                            if e.address == cur_address {
                                 let (np, data_edited) = e.render(ui, *unit);
                                 next_editor = next_editor.or(np.map(|(address, cursor)|
                                     HexEditor::new(address, cursor, view)
@@ -391,6 +423,43 @@ impl MemoryView {
         end.saturating_sub(start + 1)
     }
 
+    fn handle_scroll_keys(&mut self, ui: &Ui, bytes_per_line: usize, lines_on_screen: usize) {
+        if ui.is_key_pressed(Key::Up, true) {
+            self.memory_editor.decrease_address(bytes_per_line);
+        }
+        if ui.is_key_pressed(Key::Down, true) {
+            self.memory_editor.increase_address(bytes_per_line);
+        }
+        if ui.is_key_pressed(Key::PageUp, true) {
+            self.memory_editor.decrease_address(bytes_per_line * lines_on_screen);
+        }
+        if ui.is_key_pressed(Key::PageDown, true) {
+            self.memory_editor.increase_address(bytes_per_line * lines_on_screen);
+        }
+        let wheel = ui.get_mouse_wheel();
+        if wheel > 0.0 {
+            self.memory_editor.decrease_address(bytes_per_line * LINES_PER_SCROLL);
+        }
+        if wheel < 0.0 {
+            self.memory_editor.increase_address(bytes_per_line * LINES_PER_SCROLL);
+        }
+    }
+
+    fn move_memory_to_cursor(&mut self, bytes_per_line: usize, lines_on_screen: usize) {
+        if let Some(address) = self.memory_editor.get_address() {
+            let start_address = self.start_address.get_value();
+            if address < start_address {
+                let lines_needed = (start_address - address + bytes_per_line - 1) / bytes_per_line;
+                self.memory_request = Some((start_address.saturating_sub(lines_needed * bytes_per_line), self.bytes_requested));
+            }
+            let last_address = self.start_address.get_value().saturating_add(bytes_per_line * lines_on_screen);
+            if address >= last_address {
+                let lines_needed = (address - last_address) / bytes_per_line + 1;
+                self.memory_request = Some((start_address.saturating_add(lines_needed * bytes_per_line), self.bytes_requested));
+            }
+        }
+    }
+
     fn render(&mut self, ui: &mut Ui, writer: &mut Writer) {
         self.render_header(ui);
         let columns = match self.columns {
@@ -413,16 +482,18 @@ impl MemoryView {
 
         let mut address = self.start_address.get_value();
         let mut next_editor = None;
-        let mut lines = self.data.chunks_mut(bytes_per_line);
-        let mut prev_lines = self.prev_data.chunks(bytes_per_line);
-        for _ in 0..lines_needed {
-            let line = lines.next().unwrap_or(&mut []);
-            let prev_line = prev_lines.next().unwrap_or(&[]);
-            next_editor = next_editor.or(
-                MemoryView::render_line(&mut self.memory_editor, ui, address, line, prev_line,
-                                        self.number_view, writer, columns, self.text_shown)
-            );
-            address += bytes_per_line;
+        {
+            let mut lines = self.data.chunks_mut(bytes_per_line);
+            let mut prev_lines = self.prev_data.chunks(bytes_per_line);
+            for _ in 0..lines_needed {
+                let line = lines.next().unwrap_or(&mut []);
+                let prev_line = prev_lines.next().unwrap_or(&[]);
+                next_editor = next_editor.or(
+                    MemoryView::render_line(&mut self.memory_editor, ui, address, line, prev_line,
+                                            self.number_view, writer, columns, self.text_shown)
+                );
+                address += bytes_per_line;
+            }
         }
 
         ui.end_child();
@@ -431,6 +502,8 @@ impl MemoryView {
         if let Some(editor) = next_editor {
             self.memory_editor = editor;
         }
+        self.handle_scroll_keys(ui, bytes_per_line, lines_needed);
+        self.move_memory_to_cursor(bytes_per_line, lines_needed);
     }
 }
 

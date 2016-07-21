@@ -499,6 +499,7 @@ typedef struct PDUI {
 	void (*reset_mouse_drag_delta)(int button);
 	PDUIMouseCursor (*get_mouse_cursor)();
 	void (*set_mouse_cursor)(PDUIMouseCursor type);
+	float (*get_mouse_wheel)();
 
     // Rendering
 

@@ -7,7 +7,7 @@ use number_view::{NumberView, Endianness};
 use char_editor::{CharEditor, NextPosition};
 
 pub struct HexEditor {
-    address: usize,
+    pub address: usize,
     cursor: usize,
     view: NumberView,
     char_editor: CharEditor,
@@ -21,10 +21,6 @@ impl HexEditor {
             view: view,
             char_editor: CharEditor::new(),
         }
-    }
-
-    pub fn is_at_address(&self, address: usize) -> bool {
-        self.address == address
     }
 
     /// Returns position preceding current. Returns `None` if we're at (0, 0) or `self.position` is

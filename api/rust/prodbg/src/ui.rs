@@ -780,6 +780,10 @@ impl Ui {
         unsafe { ((*self.api).get_mouse_pos)() }
     }
 
+	pub fn get_mouse_wheel(&self) -> f32 {
+        unsafe { ((*self.api).get_mouse_wheel)() }
+    }
+
     ///
     /// Rendering primitives
     ///
