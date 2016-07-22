@@ -58,3 +58,9 @@ impl AsciiEditor {
         return (next_position, data_has_changed);
     }
 }
+
+impl Clone for AsciiEditor {
+    fn clone(&self) -> AsciiEditor {
+        AsciiEditor::new(self.address)
+    }
+}

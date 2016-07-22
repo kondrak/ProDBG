@@ -25,11 +25,13 @@ const TABLE_SPACING: &'static str = "  ";
 const COLUMNS_SPACING: &'static str = " ";
 // TODO: change to Color when `const fn` is in stable Rust
 const CHANGED_DATA_COLOR: u32 = 0xff0000ff;
+const LINES_PER_SCROLL: usize = 3;
 
+#[derive(Clone)]
 enum Cursor {
     /// Number area is edited right now. `HexEditor` structure contains inner data about focusing
     /// and exact cursor position
-    Hex(HexEditor),
+    Number(HexEditor),
     /// Text area is edited right now. `AsciiEditor` structure contains inner data about focusing
     /// and exact cursor position
     Text(AsciiEditor),
@@ -45,9 +47,9 @@ impl Cursor {
         }
     }
 
-    pub fn hex(&mut self) -> Option<&mut HexEditor> {
+    pub fn number(&mut self) -> Option<&mut HexEditor> {
         match self {
-            &mut Cursor::Hex(ref mut e) => Some(e),
+            &mut Cursor::Number(ref mut e) => Some(e),
             _ => None,
         }
     }
@@ -55,7 +57,7 @@ impl Cursor {
     pub fn decrease_address(&mut self, delta: usize) {
         match self {
             &mut Cursor::Text(ref mut e) => e.address = e.address.saturating_sub(delta),
-            &mut Cursor::Hex(ref mut e) => e.address = e.address.saturating_sub(delta),
+            &mut Cursor::Number(ref mut e) => e.address = e.address.saturating_sub(delta),
             _ => {}
         }
     }
@@ -63,7 +65,7 @@ impl Cursor {
     pub fn increase_address(&mut self, delta: usize) {
         match self {
             &mut Cursor::Text(ref mut e) => e.address = e.address.saturating_add(delta),
-            &mut Cursor::Hex(ref mut e) => e.address = e.address.saturating_add(delta),
+            &mut Cursor::Number(ref mut e) => e.address = e.address.saturating_add(delta),
             _ => {}
         }
     }
@@ -72,7 +74,7 @@ impl Cursor {
     pub fn get_address(&self) -> Option<usize> {
         match self {
             &Cursor::Text(ref e) => Some(e.address),
-            &Cursor::Hex(ref e) => Some(e.address),
+            &Cursor::Number(ref e) => Some(e.address),
             _ => None,
         }
     }
@@ -80,7 +82,7 @@ impl Cursor {
     pub fn set_address(&mut self, address: usize) {
         match self {
             &mut Cursor::Text(ref mut e) => e.address = address,
-            &mut Cursor::Hex(ref mut e) => {
+            &mut Cursor::Number(ref mut e) => {
                 e.address = address;
                 e.cursor = 0;
             },
@@ -256,8 +258,8 @@ impl MemoryView {
         if let Some(view) = view {
             ui.same_line(0, -1);
             ui.text(TABLE_SPACING);
-            let (hex_editor, hex_data) = MemoryView::render_numbers(ui, cursor.hex(), address, data, prev_data, view, columns);
-            res = res.or(hex_editor.map(|editor| Cursor::Hex(editor)));
+            let (hex_editor, hex_data) = MemoryView::render_numbers(ui, cursor.number(), address, data, prev_data, view, columns);
+            res = res.or(hex_editor.map(|editor| Cursor::Number(editor)));
             new_data = new_data.or(hex_data);
         }
         if text_shown {
@@ -427,29 +429,42 @@ impl MemoryView {
         end.saturating_sub(start + 1)
     }
 
-    fn handle_scroll_keys(&mut self, ui: &Ui, bytes_per_line: usize, lines_on_screen: usize) {
+    fn handle_cursor_move_keys(&mut self, ui: &Ui, bytes_per_line: usize) -> Option<Cursor> {
         if ui.is_key_pressed(Key::Up, true) {
-            self.cursor.decrease_address(bytes_per_line);
+            let mut cursor = self.cursor.clone();
+            cursor.decrease_address(bytes_per_line);
+            return Some(cursor);
         }
         if ui.is_key_pressed(Key::Down, true) {
-            self.cursor.increase_address(bytes_per_line);
+            let mut cursor = self.cursor.clone();
+            cursor.increase_address(bytes_per_line);
+            return Some(cursor);
         }
+        None
+    }
+
+    fn handle_scroll_keys(&mut self, ui: &Ui, bytes_per_line: usize, lines_on_screen: usize) {
+        let address = self.start_address.get();
+        let mut new_address = None;
         if ui.is_key_pressed(Key::PageUp, true) {
-            self.cursor.decrease_address(bytes_per_line * lines_on_screen);
+            new_address = Some(address.saturating_sub(bytes_per_line * lines_on_screen));
         }
         if ui.is_key_pressed(Key::PageDown, true) {
-            self.cursor.increase_address(bytes_per_line * lines_on_screen);
+            new_address = Some(address.saturating_add(bytes_per_line * lines_on_screen));
         }
         let wheel = ui.get_mouse_wheel();
         if wheel > 0.0 {
-            self.cursor.decrease_address(bytes_per_line);
+            new_address = Some(address.saturating_sub(bytes_per_line * LINES_PER_SCROLL));
         }
         if wheel < 0.0 {
-            self.cursor.increase_address(bytes_per_line);
+            new_address = Some(address.saturating_add(bytes_per_line * LINES_PER_SCROLL));
+        }
+        if let Some(new_address) = new_address {
+            self.start_address.set(new_address);
         }
     }
 
-    fn move_memory_to_cursor(&mut self, bytes_per_line: usize, lines_on_screen: usize) {
+    fn follow_cursor(&mut self, bytes_per_line: usize, lines_on_screen: usize) {
         if let Some(address) = self.cursor.get_address() {
             let start_address = self.start_address.get();
             if address < start_address {
@@ -500,11 +515,13 @@ impl MemoryView {
         ui.end_child();
         ui.pop_style_var(1);
 
+        next_cursor = next_cursor.or_else(|| self.handle_cursor_move_keys(ui, bytes_per_line));
+
         if let Some(cursor) = next_cursor {
             self.cursor = cursor;
+            self.follow_cursor(bytes_per_line, lines_needed);
         }
         self.handle_scroll_keys(ui, bytes_per_line, lines_needed);
-        self.move_memory_to_cursor(bytes_per_line, lines_needed);
     }
 
     fn process_memory_request(&mut self, writer: &mut Writer) {

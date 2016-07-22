@@ -70,3 +70,9 @@ impl HexEditor {
         return (next_position, data_has_changed);
     }
 }
+
+impl Clone for HexEditor {
+    fn clone(&self) -> HexEditor {
+        HexEditor::new(self.address, self.cursor, self.view)
+    }
+}
