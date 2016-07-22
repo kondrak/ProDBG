@@ -370,13 +370,12 @@ impl MemoryView {
                     if let Err(e) = self.update_memory(reader) {
                         println!("Could not update memory: {:?}", e);
                     }
-                },
-                // TODO: change this event to one or several that correspond to executing code
+                }
                 et if et == EventType::SetBreakpoint as i32 => {
                     println!("Breakpoint moved");
                     self.process_step();
                 }
-                _ => {}//println!("Got unknown event type: {:?}", event_type)}
+                _ => {}
             }
         }
     }
