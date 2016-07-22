@@ -14,7 +14,7 @@ impl AddressEditor {
             buf: [0; 20],
             value: 0,
         };
-        res.set_value(value);
+        res.set(value);
         return res;
     }
 
@@ -37,11 +37,11 @@ impl AddressEditor {
         res
     }
 
-    pub fn get_value(&self) -> usize {
+    pub fn get(&self) -> usize {
         self.value
     }
 
-    pub fn set_value(&mut self, value: usize) {
+    pub fn set(&mut self, value: usize) {
         self.value = value;
         let data = format!("{:08x}", value);
         (&mut self.buf[0..data.len()]).copy_from_slice(data.as_bytes());

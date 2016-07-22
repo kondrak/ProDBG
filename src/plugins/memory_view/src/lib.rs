@@ -26,8 +26,7 @@ const COLUMNS_SPACING: &'static str = " ";
 // TODO: change to Color when `const fn` is in stable Rust
 const CHANGED_DATA_COLOR: u32 = 0xff0000ff;
 
-/// Enum that acts as cursor for current memory editor.
-enum Editor {
+enum Cursor {
     /// Number area is edited right now. `HexEditor` structure contains inner data about focusing
     /// and exact cursor position
     Hex(HexEditor),
@@ -38,33 +37,33 @@ enum Editor {
     None,
 }
 
-impl Editor {
+impl Cursor {
     pub fn text(&mut self) -> Option<&mut AsciiEditor> {
         match self {
-            &mut Editor::Text(ref mut e) => Some(e),
+            &mut Cursor::Text(ref mut e) => Some(e),
             _ => None,
         }
     }
 
     pub fn hex(&mut self) -> Option<&mut HexEditor> {
         match self {
-            &mut Editor::Hex(ref mut e) => Some(e),
+            &mut Cursor::Hex(ref mut e) => Some(e),
             _ => None,
         }
     }
 
     pub fn decrease_address(&mut self, delta: usize) {
         match self {
-            &mut Editor::Text(ref mut e) => e.address = e.address.saturating_sub(delta),
-            &mut Editor::Hex(ref mut e) => e.address = e.address.saturating_sub(delta),
+            &mut Cursor::Text(ref mut e) => e.address = e.address.saturating_sub(delta),
+            &mut Cursor::Hex(ref mut e) => e.address = e.address.saturating_sub(delta),
             _ => {}
         }
     }
 
     pub fn increase_address(&mut self, delta: usize) {
         match self {
-            &mut Editor::Text(ref mut e) => e.address = e.address.saturating_add(delta),
-            &mut Editor::Hex(ref mut e) => e.address = e.address.saturating_add(delta),
+            &mut Cursor::Text(ref mut e) => e.address = e.address.saturating_add(delta),
+            &mut Cursor::Hex(ref mut e) => e.address = e.address.saturating_add(delta),
             _ => {}
         }
     }
@@ -72,16 +71,16 @@ impl Editor {
     /// Returns memory address edited right now, if any.
     pub fn get_address(&self) -> Option<usize> {
         match self {
-            &Editor::Text(ref e) => Some(e.address),
-            &Editor::Hex(ref e) => Some(e.address),
+            &Cursor::Text(ref e) => Some(e.address),
+            &Cursor::Hex(ref e) => Some(e.address),
             _ => None,
         }
     }
 
     pub fn set_address(&mut self, address: usize) {
         match self {
-            &mut Editor::Text(ref mut e) => e.address = address,
-            &mut Editor::Hex(ref mut e) => {
+            &mut Cursor::Text(ref mut e) => e.address = address,
+            &mut Cursor::Hex(ref mut e) => {
                 e.address = address;
                 e.cursor = 0;
             },
@@ -106,7 +105,7 @@ struct MemoryView {
     /// Number of columns shown (if number view is on) or number of bytes shown
     columns: usize,
     /// Cursor of memory editor
-    memory_editor: Editor,
+    cursor: Cursor,
     /// Picked number view
     number_view: Option<NumberView>,
     /// Picked text view (currently on/off since only ascii text view is available)
@@ -248,8 +247,8 @@ impl MemoryView {
         (next_editor, changed_data)
     }
 
-    fn render_line(editor: &mut Editor, ui: &mut Ui, address: usize, data: &mut [u8], prev_data: &[u8], view: Option<NumberView>, writer: &mut Writer, columns: usize, text_shown: bool) -> Option<Editor> {
-        //TODO: Hide editor when user clicks somewhere else
+    fn render_line(cursor: &mut Cursor, ui: &mut Ui, address: usize, data: &mut [u8], prev_data: &[u8], view: Option<NumberView>, writer: &mut Writer, columns: usize, text_shown: bool) -> Option<Cursor> {
+        //TODO: Hide cursor when user clicks somewhere else
         MemoryView::render_address(ui, address);
 
         let mut new_data = None;
@@ -257,8 +256,8 @@ impl MemoryView {
         if let Some(view) = view {
             ui.same_line(0, -1);
             ui.text(TABLE_SPACING);
-            let (hex_editor, hex_data) = MemoryView::render_numbers(ui, editor.hex(), address, data, prev_data, view, columns);
-            res = res.or(hex_editor.map(|editor| Editor::Hex(editor)));
+            let (hex_editor, hex_data) = MemoryView::render_numbers(ui, cursor.hex(), address, data, prev_data, view, columns);
+            res = res.or(hex_editor.map(|editor| Cursor::Hex(editor)));
             new_data = new_data.or(hex_data);
         }
         if text_shown {
@@ -268,8 +267,8 @@ impl MemoryView {
                 Some(ref v) => v.size.byte_count(),
                 _ => 1,
             };
-            let (ascii_editor, ascii_data) = MemoryView::render_ascii_string(ui, address, data, prev_data, line_len, editor.text());
-            res = res.or_else(|| ascii_editor.map(|editor| Editor::Text(editor)));
+            let (ascii_editor, ascii_data) = MemoryView::render_ascii_string(ui, address, data, prev_data, line_len, cursor.text());
+            res = res.or_else(|| ascii_editor.map(|editor| Cursor::Text(editor)));
             new_data = new_data.or(ascii_data);
         }
         if let Some((abs_address, size)) = new_data {
@@ -332,7 +331,7 @@ impl MemoryView {
 
         if view_is_changed {
             self.number_view = view;
-            self.memory_editor = Editor::None;
+            self.cursor = Cursor::None;
         }
     }
 
@@ -347,8 +346,8 @@ impl MemoryView {
 
     fn render_header(&mut self, ui: &mut Ui) {
         if self.start_address.render(ui) {
-            let new_address = self.start_address.get_value();
-            self.memory_editor.set_address(new_address);
+            let new_address = self.start_address.get();
+            self.cursor.set_address(new_address);
         }
         ui.same_line(0, -1);
         self.render_number_view_picker(ui);
@@ -430,37 +429,37 @@ impl MemoryView {
 
     fn handle_scroll_keys(&mut self, ui: &Ui, bytes_per_line: usize, lines_on_screen: usize) {
         if ui.is_key_pressed(Key::Up, true) {
-            self.memory_editor.decrease_address(bytes_per_line);
+            self.cursor.decrease_address(bytes_per_line);
         }
         if ui.is_key_pressed(Key::Down, true) {
-            self.memory_editor.increase_address(bytes_per_line);
+            self.cursor.increase_address(bytes_per_line);
         }
         if ui.is_key_pressed(Key::PageUp, true) {
-            self.memory_editor.decrease_address(bytes_per_line * lines_on_screen);
+            self.cursor.decrease_address(bytes_per_line * lines_on_screen);
         }
         if ui.is_key_pressed(Key::PageDown, true) {
-            self.memory_editor.increase_address(bytes_per_line * lines_on_screen);
+            self.cursor.increase_address(bytes_per_line * lines_on_screen);
         }
         let wheel = ui.get_mouse_wheel();
         if wheel > 0.0 {
-            self.memory_editor.decrease_address(bytes_per_line);
+            self.cursor.decrease_address(bytes_per_line);
         }
         if wheel < 0.0 {
-            self.memory_editor.increase_address(bytes_per_line);
+            self.cursor.increase_address(bytes_per_line);
         }
     }
 
     fn move_memory_to_cursor(&mut self, bytes_per_line: usize, lines_on_screen: usize) {
-        if let Some(address) = self.memory_editor.get_address() {
-            let start_address = self.start_address.get_value();
+        if let Some(address) = self.cursor.get_address() {
+            let start_address = self.start_address.get();
             if address < start_address {
                 let lines_needed = (start_address - address + bytes_per_line - 1) / bytes_per_line;
-                self.start_address.set_value(start_address.saturating_sub(lines_needed * bytes_per_line));
+                self.start_address.set(start_address.saturating_sub(lines_needed * bytes_per_line));
             }
-            let last_address = self.start_address.get_value().saturating_add(bytes_per_line * lines_on_screen);
+            let last_address = self.start_address.get().saturating_add(bytes_per_line * lines_on_screen);
             if address >= last_address {
                 let lines_needed = (address - last_address) / bytes_per_line + 1;
-                self.start_address.set_value(start_address.saturating_add(lines_needed * bytes_per_line));
+                self.start_address.set(start_address.saturating_add(lines_needed * bytes_per_line));
             }
         }
     }
@@ -482,16 +481,16 @@ impl MemoryView {
         let lines_needed = MemoryView::get_screen_lines_count(ui);
         self.bytes_needed = bytes_per_line * lines_needed;
 
-        let mut address = self.start_address.get_value();
-        let mut next_editor = None;
+        let mut address = self.start_address.get();
+        let mut next_cursor = None;
         {
             let mut lines = self.data.chunks_mut(bytes_per_line);
             let mut prev_lines = self.prev_data.chunks_mut(bytes_per_line);
             for _ in 0..lines_needed {
                 let line = lines.next().unwrap_or(&mut []);
                 let prev_line = prev_lines.next().unwrap_or(&mut []);
-                next_editor = next_editor.or(
-                    MemoryView::render_line(&mut self.memory_editor, ui, address, line, prev_line,
+                next_cursor = next_cursor.or(
+                    MemoryView::render_line(&mut self.cursor, ui, address, line, prev_line,
                                             self.number_view, writer, columns, self.text_shown)
                 );
                 address += bytes_per_line;
@@ -501,15 +500,15 @@ impl MemoryView {
         ui.end_child();
         ui.pop_style_var(1);
 
-        if let Some(editor) = next_editor {
-            self.memory_editor = editor;
+        if let Some(cursor) = next_cursor {
+            self.cursor = cursor;
         }
         self.handle_scroll_keys(ui, bytes_per_line, lines_needed);
         self.move_memory_to_cursor(bytes_per_line, lines_needed);
     }
 
     fn process_memory_request(&mut self, writer: &mut Writer) {
-        let address = self.start_address.get_value();
+        let address = self.start_address.get();
         if address != self.data.start() || self.bytes_needed > self.data.len() {
             self.should_update_memory = true;
         }
@@ -535,7 +534,7 @@ impl View for MemoryView {
             should_update_memory: false,
             bytes_needed: 0,
             columns: 0,
-            memory_editor: Editor::None,
+            cursor: Cursor::None,
             number_view: Some(NumberView::default()),
             text_shown: true,
         }
