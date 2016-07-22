@@ -5,7 +5,11 @@ use ::std::cmp::{min, max};
 
 
 /// Returns `Some((start, len))` for common part for two segments if `len` is more then zero.
-fn intersect(first_start: usize, first_len: usize, second_start: usize, second_len: usize) -> Option<(usize, usize)> {
+fn intersect(first_start: usize,
+             first_len: usize,
+             second_start: usize,
+             second_len: usize)
+             -> Option<(usize, usize)> {
     let istart = max(first_start, second_start);
     let iend = min(first_start + first_len, second_start + second_len);
     if iend > istart {
@@ -53,7 +57,11 @@ impl MemoryChunk {
     /// Creates iterator that acts like `Vec::chunks_mut`. For inaccessible or partially accessible
     /// chunks it will emit empty slice, for accessible bytes - slice of size `size`.
     pub fn chunks_mut(&mut self, size: usize) -> ChunksMut {
-        ChunksMut::new(self.start, self.len, self.bytes_start, &mut self.bytes, size)
+        ChunksMut::new(self.start,
+                       self.len,
+                       self.bytes_start,
+                       &mut self.bytes,
+                       size)
     }
 
     /// Changes this chunk of memory to be from `start` to `len`. Reuses every possible byte of
@@ -85,11 +93,14 @@ impl MemoryChunk {
 
     /// Sets accessible memory
     pub fn set_accessible(&mut self, start: usize, bytes: &[u8]) {
-        if let Some((common_start, common_len)) = intersect(self.start, self.len, start, bytes.len()) {
+        if let Some((common_start, common_len)) = intersect(self.start,
+                                                            self.len,
+                                                            start,
+                                                            bytes.len()) {
             self.bytes.resize(common_len, 0);
             self.bytes_start = common_start;
             let offset = common_start - start;
-            self.bytes.copy_from_slice(&bytes[offset..offset+common_len]);
+            self.bytes.copy_from_slice(&bytes[offset..offset + common_len]);
         } else {
             self.bytes_start = self.start + self.len;
             self.bytes.truncate(0);
@@ -138,7 +149,12 @@ pub struct ChunksMut<'a> {
 }
 
 impl<'a> ChunksMut<'a> {
-    pub fn new(start_address: usize, len: usize, data_address: usize, data: &'a mut [u8], size: usize) -> ChunksMut<'a> {
+    pub fn new(start_address: usize,
+               len: usize,
+               data_address: usize,
+               data: &'a mut [u8],
+               size: usize)
+               -> ChunksMut<'a> {
         let offset = if data_address > start_address {
             (size - (data_address - start_address) % size) % size
         } else {
@@ -206,28 +222,28 @@ mod test {
 
     #[test]
     pub fn test_transform_shrinks_bytes_from_end_partially() {
-        let mut chunk = chunk(10, 10, 15, vec!(1,2,3));
+        let mut chunk = chunk(10, 10, 15, vec![1, 2, 3]);
         chunk.transform(5, 12);
         assert_chunk!(chunk, 5, 12, 15, [1, 2]);
     }
 
     #[test]
     pub fn test_transform_shrinks_bytes_from_end_fully() {
-        let mut chunk = chunk(10, 10, 15, vec!(1,2,3));
+        let mut chunk = chunk(10, 10, 15, vec![1, 2, 3]);
         chunk.transform(10, 5);
         assert_chunk!(chunk, 10, 5, empty);
     }
 
     #[test]
     pub fn test_transform_shrinks_bytes_from_start_partially() {
-        let mut chunk = chunk(10, 10, 15, vec!(1,2,3));
+        let mut chunk = chunk(10, 10, 15, vec![1, 2, 3]);
         chunk.transform(16, 10);
-        assert_chunk!(chunk, 16, 10, 16, [2,3]);
+        assert_chunk!(chunk, 16, 10, 16, [2, 3]);
     }
 
     #[test]
     pub fn test_transform_shrinks_bytes_from_start_fully() {
-        let mut chunk = chunk(10, 10, 15, vec!(1,2,3));
+        let mut chunk = chunk(10, 10, 15, vec![1, 2, 3]);
         chunk.transform(18, 10);
         assert_chunk!(chunk, 18, 10, empty);
     }
@@ -235,146 +251,148 @@ mod test {
     #[test]
     pub fn test_set_accessible_1() {
         // start and end are to the left of memory region
-        let mut chunk = chunk(10, 10, 15, vec!(1,2,3));
-        chunk.set_accessible(5, &[4,5,6]);
+        let mut chunk = chunk(10, 10, 15, vec![1, 2, 3]);
+        chunk.set_accessible(5, &[4, 5, 6]);
         assert_chunk!(chunk, 10, 10, empty);
     }
 
     #[test]
     pub fn test_set_accessible_2() {
         // start is to the left, end is within bounds
-        let mut chunk = chunk(10, 10, 15, vec!(1,2,3));
-        chunk.set_accessible(5, &[4,5,6,7,8,9,10]);
-        assert_chunk!(chunk, 10, 10, 10, [9,10]);
+        let mut chunk = chunk(10, 10, 15, vec![1, 2, 3]);
+        chunk.set_accessible(5, &[4, 5, 6, 7, 8, 9, 10]);
+        assert_chunk!(chunk, 10, 10, 10, [9, 10]);
     }
 
     #[test]
     pub fn test_set_accessible_3() {
         // start is to the left, end is to the right
-        let mut chunk = chunk(10, 5, 11, vec!(1,2,3));
-        chunk.set_accessible(8, &[4,5,6,7,8,9,10,11,12,13,14,15,16]);
-        assert_chunk!(chunk, 10, 5, 10, [6,7,8,9,10]);
+        let mut chunk = chunk(10, 5, 11, vec![1, 2, 3]);
+        chunk.set_accessible(8, &[4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+        assert_chunk!(chunk, 10, 5, 10, [6, 7, 8, 9, 10]);
     }
 
     #[test]
     pub fn test_set_accessible_4() {
         // start is within bounds, end is within bounds
-        let mut chunk = chunk(10, 10, 15, vec!(1,2,3));
-        chunk.set_accessible(11, &[4,5,6]);
-        assert_chunk!(chunk, 10, 10, 11, [4,5,6]);
+        let mut chunk = chunk(10, 10, 15, vec![1, 2, 3]);
+        chunk.set_accessible(11, &[4, 5, 6]);
+        assert_chunk!(chunk, 10, 10, 11, [4, 5, 6]);
     }
 
     #[test]
     pub fn test_set_accessible_5() {
         // start is within bounds, end is to the right
-        let mut chunk = chunk(10, 5, 11, vec!(1,2,3));
-        chunk.set_accessible(12, &[4,5,6,7,8,9,10]);
-        assert_chunk!(chunk, 10, 5, 12, [4,5,6]);
+        let mut chunk = chunk(10, 5, 11, vec![1, 2, 3]);
+        chunk.set_accessible(12, &[4, 5, 6, 7, 8, 9, 10]);
+        assert_chunk!(chunk, 10, 5, 12, [4, 5, 6]);
     }
 
     #[test]
     pub fn test_set_accessible_6() {
         // start and end are to the right
-        let mut chunk = chunk(10, 5, 11, vec!(1,2,3));
-        chunk.set_accessible(16, &[4,5,6,7,8,9,10]);
+        let mut chunk = chunk(10, 5, 11, vec![1, 2, 3]);
+        chunk.set_accessible(16, &[4, 5, 6, 7, 8, 9, 10]);
         assert_chunk!(chunk, 10, 5, empty);
     }
 
     #[test]
     pub fn test_extend_accessible_1() {
-        let mut chunk = chunk(10, 10, 13, vec!(1,2,3));
-        chunk.extend_accessible(5, &[4,5,6]);
-        assert_chunk!(chunk, 10, 10, 13, [1,2,3]);
+        let mut chunk = chunk(10, 10, 13, vec![1, 2, 3]);
+        chunk.extend_accessible(5, &[4, 5, 6]);
+        assert_chunk!(chunk, 10, 10, 13, [1, 2, 3]);
     }
 
     #[test]
     pub fn test_extend_accessible_2() {
-        let mut chunk = chunk(10, 10, 13, vec!(1,2,3));
-        chunk.extend_accessible(9, &[4,5,6]);
-        assert_chunk!(chunk, 10, 10, 13, [1,2,3]);
+        let mut chunk = chunk(10, 10, 13, vec![1, 2, 3]);
+        chunk.extend_accessible(9, &[4, 5, 6]);
+        assert_chunk!(chunk, 10, 10, 13, [1, 2, 3]);
     }
 
     #[test]
     pub fn test_extend_accessible_3() {
-        let mut chunk = chunk(10, 10, 13, vec!(1,2,3));
-        chunk.extend_accessible(9, &[4,5,6,7,8,9]);
-        assert_chunk!(chunk, 10, 10, 10, [5,6,7,1,2,3]);
+        let mut chunk = chunk(10, 10, 13, vec![1, 2, 3]);
+        chunk.extend_accessible(9, &[4, 5, 6, 7, 8, 9]);
+        assert_chunk!(chunk, 10, 10, 10, [5, 6, 7, 1, 2, 3]);
     }
 
     #[test]
     pub fn test_extend_accessible_4() {
-        let mut chunk = chunk(10, 10, 13, vec!(1,2,3));
-        chunk.extend_accessible(9, &[4,5,6,7,8,9,10,11,12]);
-        assert_chunk!(chunk, 10, 10, 10, [5,6,7,1,2,3,11,12]);
+        let mut chunk = chunk(10, 10, 13, vec![1, 2, 3]);
+        chunk.extend_accessible(9, &[4, 5, 6, 7, 8, 9, 10, 11, 12]);
+        assert_chunk!(chunk, 10, 10, 10, [5, 6, 7, 1, 2, 3, 11, 12]);
     }
 
     #[test]
     pub fn test_extend_accessible_5() {
-        let mut chunk = chunk(10, 10, 13, vec!(1,2,3));
-        chunk.extend_accessible(9, &[4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21]);
-        assert_chunk!(chunk, 10, 10, 10, [5,6,7,1,2,3,11,12,13,14]);
+        let mut chunk = chunk(10, 10, 13, vec![1, 2, 3]);
+        chunk.extend_accessible(9,
+                                &[4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                                  21]);
+        assert_chunk!(chunk, 10, 10, 10, [5, 6, 7, 1, 2, 3, 11, 12, 13, 14]);
     }
 
     #[test]
     pub fn test_extend_accessible_6() {
-        let mut chunk = chunk(10, 10, 13, vec!(1,2,3));
-        chunk.extend_accessible(10, &[4,5]);
-        assert_chunk!(chunk, 10, 10, 13, [1,2,3]);
+        let mut chunk = chunk(10, 10, 13, vec![1, 2, 3]);
+        chunk.extend_accessible(10, &[4, 5]);
+        assert_chunk!(chunk, 10, 10, 13, [1, 2, 3]);
     }
 
     #[test]
     pub fn test_extend_accessible_7() {
-        let mut chunk = chunk(10, 10, 13, vec!(1,2,3));
-        chunk.extend_accessible(10, &[4,5,6]);
-        assert_chunk!(chunk, 10, 10, 10, [4,5,6,1,2,3]);
+        let mut chunk = chunk(10, 10, 13, vec![1, 2, 3]);
+        chunk.extend_accessible(10, &[4, 5, 6]);
+        assert_chunk!(chunk, 10, 10, 10, [4, 5, 6, 1, 2, 3]);
     }
 
     #[test]
     pub fn test_extend_accessible_8() {
-        let mut chunk = chunk(10, 10, 13, vec!(1,2,3));
-        chunk.extend_accessible(11, &[4,5,6,7,8,9,10,11]);
-        assert_chunk!(chunk, 10, 10, 11, [4,5,1,2,3,9,10,11]);
+        let mut chunk = chunk(10, 10, 13, vec![1, 2, 3]);
+        chunk.extend_accessible(11, &[4, 5, 6, 7, 8, 9, 10, 11]);
+        assert_chunk!(chunk, 10, 10, 11, [4, 5, 1, 2, 3, 9, 10, 11]);
     }
 
     #[test]
     pub fn test_extend_accessible_9() {
-        let mut chunk = chunk(10, 10, 13, vec!(1,2,3));
-        chunk.extend_accessible(11, &[4,5,6,7,8,9,10,11,12,13,14,15,16,17]);
-        assert_chunk!(chunk, 10, 10, 11, [4,5,1,2,3,9,10,11,12]);
+        let mut chunk = chunk(10, 10, 13, vec![1, 2, 3]);
+        chunk.extend_accessible(11, &[4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
+        assert_chunk!(chunk, 10, 10, 11, [4, 5, 1, 2, 3, 9, 10, 11, 12]);
     }
 
     #[test]
     pub fn test_extend_accessible_10() {
-        let mut chunk = chunk(10, 10, 13, vec!(1,2,3));
-        chunk.extend_accessible(14, &[4,5]);
-        assert_chunk!(chunk, 10, 10, 13, [1,2,3]);
+        let mut chunk = chunk(10, 10, 13, vec![1, 2, 3]);
+        chunk.extend_accessible(14, &[4, 5]);
+        assert_chunk!(chunk, 10, 10, 13, [1, 2, 3]);
     }
 
     #[test]
     pub fn test_extend_accessible_11() {
-        let mut chunk = chunk(10, 10, 13, vec!(1,2,3));
-        chunk.extend_accessible(14, &[4,5,6,7,8,9]);
-        assert_chunk!(chunk, 10, 10, 13, [1,2,3,6,7,8,9]);
+        let mut chunk = chunk(10, 10, 13, vec![1, 2, 3]);
+        chunk.extend_accessible(14, &[4, 5, 6, 7, 8, 9]);
+        assert_chunk!(chunk, 10, 10, 13, [1, 2, 3, 6, 7, 8, 9]);
     }
 
     #[test]
     pub fn test_extend_accessible_12() {
-        let mut chunk = chunk(10, 10, 13, vec!(1,2,3));
-        chunk.extend_accessible(14, &[4,5,6,7,8,9,10,11,12,13,14]);
-        assert_chunk!(chunk, 10, 10, 13, [1,2,3,6,7,8,9]);
+        let mut chunk = chunk(10, 10, 13, vec![1, 2, 3]);
+        chunk.extend_accessible(14, &[4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+        assert_chunk!(chunk, 10, 10, 13, [1, 2, 3, 6, 7, 8, 9]);
     }
 
     #[test]
     pub fn test_extend_accessible_13() {
-        let mut chunk = chunk(10, 10, 13, vec!(1,2,3));
-        chunk.extend_accessible(16, &[4,5]);
-        assert_chunk!(chunk, 10, 10, 13, [1,2,3,4,5]);
+        let mut chunk = chunk(10, 10, 13, vec![1, 2, 3]);
+        chunk.extend_accessible(16, &[4, 5]);
+        assert_chunk!(chunk, 10, 10, 13, [1, 2, 3, 4, 5]);
     }
 
     #[test]
     pub fn test_extend_accessible_14() {
-        let mut chunk = chunk(10, 10, 13, vec!(1,2,3));
-        chunk.extend_accessible(17, &[4,5]);
-        assert_chunk!(chunk, 10, 10, 13, [1,2,3]);
+        let mut chunk = chunk(10, 10, 13, vec![1, 2, 3]);
+        chunk.extend_accessible(17, &[4, 5]);
+        assert_chunk!(chunk, 10, 10, 13, [1, 2, 3]);
     }
 }

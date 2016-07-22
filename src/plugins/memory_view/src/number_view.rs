@@ -10,7 +10,7 @@ use std;
 pub struct NumberView {
     pub representation: NumberRepresentation,
     pub size: NumberSize,
-    pub endianness: Endianness
+    pub endianness: Endianness,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -41,22 +41,28 @@ impl NumberView {
     pub fn maximum_chars_needed(&self) -> usize {
         match self.representation {
             NumberRepresentation::Hex => self.size.byte_count() * 2,
-            NumberRepresentation::UnsignedDecimal => match self.size {
-                NumberSize::OneByte => 3,
-                NumberSize::TwoBytes => 5,
-                NumberSize::FourBytes => 10,
-                NumberSize::EightBytes => 20,
-            },
-            NumberRepresentation::SignedDecimal => match self.size {
-                NumberSize::TwoBytes => 6,
-                NumberSize::OneByte => 4,
-                NumberSize::FourBytes => 11,
-                NumberSize::EightBytes => 20,
-            },
-            NumberRepresentation::Float => match self.size {
-                NumberSize::FourBytes => 14,
-                NumberSize::EightBytes => 23,
-                _ => 5, // For "Error" message
+            NumberRepresentation::UnsignedDecimal => {
+                match self.size {
+                    NumberSize::OneByte => 3,
+                    NumberSize::TwoBytes => 5,
+                    NumberSize::FourBytes => 10,
+                    NumberSize::EightBytes => 20,
+                }
+            }
+            NumberRepresentation::SignedDecimal => {
+                match self.size {
+                    NumberSize::TwoBytes => 6,
+                    NumberSize::OneByte => 4,
+                    NumberSize::FourBytes => 11,
+                    NumberSize::EightBytes => 20,
+                }
+            }
+            NumberRepresentation::Float => {
+                match self.size {
+                    NumberSize::FourBytes => 14,
+                    NumberSize::EightBytes => 23,
+                    _ => 5, // For "Error" message
+                }
             }
         }
     }
@@ -91,30 +97,38 @@ impl NumberView {
             };
         }
         match self.representation {
-            NumberRepresentation::Hex => match self.size {
-                NumberSize::OneByte => {format_buffer!(u8, 1, self.endianness, "{:02x}");}
-                NumberSize::TwoBytes => {format_buffer!(u16, 2, self.endianness, "{:04x}");}
-                NumberSize::FourBytes => {format_buffer!(u32, 4, self.endianness, "{:08x}");}
-                NumberSize::EightBytes => {format_buffer!(u64, 8, self.endianness, "{:016x}");}
-            },
-            NumberRepresentation::UnsignedDecimal => match self.size {
-                NumberSize::OneByte => {format_buffer!(u8, 1, self.endianness, "{:3}");}
-                NumberSize::TwoBytes => {format_buffer!(u16, 2, self.endianness, "{:5}");}
-                NumberSize::FourBytes => {format_buffer!(u32, 4, self.endianness, "{:10}");}
-                NumberSize::EightBytes => {format_buffer!(u64, 8, self.endianness, "{:20}");}
-            },
-            NumberRepresentation::SignedDecimal => match self.size {
-                NumberSize::OneByte => {format_buffer!(i8, 1, self.endianness, "{:4}");}
-                NumberSize::TwoBytes => {format_buffer!(i16, 2, self.endianness, "{:6}");}
-                NumberSize::FourBytes => {format_buffer!(i32, 4, self.endianness, "{:11}");}
-                NumberSize::EightBytes => {format_buffer!(i64, 8, self.endianness, "{:20}");}
-            },
-            NumberRepresentation::Float => match self.size {
-                NumberSize::FourBytes => {format_buffer!(f32, 4, "{:14e}");}
-                NumberSize::EightBytes => {format_buffer!(f64, 8, "{:23e}");}
-                // Should never be available to pick through user interface
-                _ => return "Error".to_owned()
-            },
+            NumberRepresentation::Hex => {
+                match self.size {
+                    NumberSize::OneByte => format_buffer!(u8, 1, self.endianness, "{:02x}"),
+                    NumberSize::TwoBytes => format_buffer!(u16, 2, self.endianness, "{:04x}"),
+                    NumberSize::FourBytes => format_buffer!(u32, 4, self.endianness, "{:08x}"),
+                    NumberSize::EightBytes => format_buffer!(u64, 8, self.endianness, "{:016x}"),
+                }
+            }
+            NumberRepresentation::UnsignedDecimal => {
+                match self.size {
+                    NumberSize::OneByte => format_buffer!(u8, 1, self.endianness, "{:3}"),
+                    NumberSize::TwoBytes => format_buffer!(u16, 2, self.endianness, "{:5}"),
+                    NumberSize::FourBytes => format_buffer!(u32, 4, self.endianness, "{:10}"),
+                    NumberSize::EightBytes => format_buffer!(u64, 8, self.endianness, "{:20}"),
+                }
+            }
+            NumberRepresentation::SignedDecimal => {
+                match self.size {
+                    NumberSize::OneByte => format_buffer!(i8, 1, self.endianness, "{:4}"),
+                    NumberSize::TwoBytes => format_buffer!(i16, 2, self.endianness, "{:6}"),
+                    NumberSize::FourBytes => format_buffer!(i32, 4, self.endianness, "{:11}"),
+                    NumberSize::EightBytes => format_buffer!(i64, 8, self.endianness, "{:20}"),
+                }
+            }
+            NumberRepresentation::Float => {
+                match self.size {
+                    NumberSize::FourBytes => format_buffer!(f32, 4, "{:14e}"),
+                    NumberSize::EightBytes => format_buffer!(f64, 8, "{:23e}"),
+                    // Should never be available to pick through user interface
+                    _ => return "Error".to_owned(),
+                }
+            }
         }
     }
 
@@ -161,17 +175,19 @@ impl NumberSize {
 }
 
 static FLOAT_AVAILABLE_SIZES: [NumberSize; 2] = [NumberSize::FourBytes, NumberSize::EightBytes];
-static OTHER_AVAILABLE_SIZES: [NumberSize; 4] = [NumberSize::OneByte, NumberSize::TwoBytes,
-    NumberSize::FourBytes, NumberSize::EightBytes];
+static OTHER_AVAILABLE_SIZES: [NumberSize; 4] =
+    [NumberSize::OneByte, NumberSize::TwoBytes, NumberSize::FourBytes, NumberSize::EightBytes];
 impl NumberRepresentation {
     pub fn can_be_of_size(&self, size: NumberSize) -> bool {
         match *self {
-            NumberRepresentation::Float => match size {
-                NumberSize::FourBytes => true,
-                NumberSize::EightBytes => true,
-                _ => false,
-            },
-            _ => true
+            NumberRepresentation::Float => {
+                match size {
+                    NumberSize::FourBytes => true,
+                    NumberSize::EightBytes => true,
+                    _ => false,
+                }
+            }
+            _ => true,
         }
     }
 

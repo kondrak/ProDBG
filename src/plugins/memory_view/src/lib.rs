@@ -9,7 +9,8 @@ mod address_editor;
 mod helper;
 mod memory_chunk;
 
-use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, PDVec2, ImGuiStyleVar, EventType, ImGuiCol, Color, ReadStatus, Key};
+use prodbg_api::{View, Ui, Service, Reader, Writer, PluginHandler, CViewCallbacks, PDVec2,
+                 ImGuiStyleVar, EventType, ImGuiCol, Color, ReadStatus, Key};
 use prodbg_api::PDUIWINDOWFLAGS_HORIZONTALSCROLLBAR;
 use std::str;
 use number_view::{NumberView, NumberRepresentation, Endianness};
@@ -85,13 +86,21 @@ impl Cursor {
             &mut Cursor::Number(ref mut e) => {
                 e.address = address;
                 e.cursor = 0;
-            },
+            }
             _ => {}
         }
     }
 }
 
-const COLUMNS_TEXT_VARIANTS: [&'static str; 9] = ["Fit width", "1 column", "2 columns", "4 columns", "8 columns", "16 columns", "32 columns", "64 columns", "128 columns"];
+const COLUMNS_TEXT_VARIANTS: [&'static str; 9] = ["Fit width",
+                                                  "1 column",
+                                                  "2 columns",
+                                                  "4 columns",
+                                                  "8 columns",
+                                                  "16 columns",
+                                                  "32 columns",
+                                                  "64 columns",
+                                                  "128 columns"];
 const COLUMNS_NUM_VARIANTS: [usize; 9] = [0, 1, 2, 4, 8, 16, 32, 64, 128];
 struct MemoryView {
     /// Address of first byte of memory shown
@@ -136,7 +145,13 @@ impl MemoryView {
         ui.text(&text);
     }
 
-    fn render_ascii_string(ui: &mut Ui, mut address: usize, data: &mut [u8], prev_data: &[u8], char_count: usize, mut editor: Option<&mut AsciiEditor>) -> (Option<AsciiEditor>, Option<(usize, usize)>) {
+    fn render_ascii_string(ui: &mut Ui,
+                           mut address: usize,
+                           data: &mut [u8],
+                           prev_data: &[u8],
+                           char_count: usize,
+                           mut editor: Option<&mut AsciiEditor>)
+                           -> (Option<AsciiEditor>, Option<(usize, usize)>) {
         let mut bytes = data.iter_mut();
         let mut prev_bytes = prev_data.iter();
         let mut next_editor = None;
@@ -171,13 +186,13 @@ impl MemoryView {
                 match cur_char {
                     Some(byte) => {
                         match *byte {
-                            32...127 => ui.text( unsafe { std::str::from_utf8_unchecked( & [ * byte]) }),
+                            32...127 => ui.text(unsafe { std::str::from_utf8_unchecked(&[*byte]) }),
                             _ => ui.text("."),
                         }
                         if ui.is_item_hovered() && ui.is_mouse_clicked(0, false) {
                             next_editor = next_editor.or_else(|| Some(AsciiEditor::new(address)));
                         }
-                    },
+                    }
                     None => ui.text("?"),
                 };
             }
@@ -196,7 +211,14 @@ impl MemoryView {
         writer.event_end();
     }
 
-    fn render_numbers(ui: &mut Ui, mut editor: Option<&mut HexEditor>, address: usize, data: &mut [u8], prev_data: &[u8], view: NumberView, columns: usize) -> (Option<HexEditor>, Option<(usize, usize)>) {
+    fn render_numbers(ui: &mut Ui,
+                      mut editor: Option<&mut HexEditor>,
+                      address: usize,
+                      data: &mut [u8],
+                      prev_data: &[u8],
+                      view: NumberView,
+                      columns: usize)
+                      -> (Option<HexEditor>, Option<(usize, usize)>) {
         let bytes_per_unit = view.size.byte_count();
         let mut next_editor = None;
         let mut changed_data = None;
@@ -209,19 +231,22 @@ impl MemoryView {
                 match data_chunks.next() {
                     Some(ref mut unit) if unit.len() == bytes_per_unit => {
                         let has_changed = match prev_data_chunks.next() {
-                            Some(ref prev_unit) if prev_unit.len() == bytes_per_unit => unit != prev_unit,
+                            Some(ref prev_unit) if prev_unit.len() == bytes_per_unit => {
+                                unit != prev_unit
+                            }
                             _ => false,
                         };
                         if has_changed {
-                            ui.push_style_color(ImGuiCol::Text, Color::from_u32(CHANGED_DATA_COLOR));
+                            ui.push_style_color(ImGuiCol::Text,
+                                                Color::from_u32(CHANGED_DATA_COLOR));
                         }
                         let mut is_editor = false;
                         if let Some(ref mut e) = editor {
                             if e.address == cur_address {
                                 let (np, data_edited) = e.render(ui, *unit);
-                                next_editor = next_editor.or(np.map(|(address, cursor)|
+                                next_editor = next_editor.or(np.map(|(address, cursor)| {
                                     HexEditor::new(address, cursor, view)
-                                ));
+                                }));
                                 if data_edited {
                                     changed_data = Some((cur_address, bytes_per_unit));
                                 }
@@ -229,15 +254,17 @@ impl MemoryView {
                             }
                         }
                         if !is_editor {
-                            if let Some(index) = MemoryView::render_const_number(ui, &view.format(*unit)) {
-                                next_editor = next_editor.or(Some(HexEditor::new(cur_address, index, view)));
+                            if let Some(index) =
+                                   MemoryView::render_const_number(ui, &view.format(*unit)) {
+                                next_editor =
+                                    next_editor.or(Some(HexEditor::new(cur_address, index, view)));
                             }
                         }
                         if has_changed {
                             ui.pop_style_color(1);
                         }
-                    },
-                    _ => MemoryView::render_inaccessible_memory(ui, view.maximum_chars_needed())
+                    }
+                    _ => MemoryView::render_inaccessible_memory(ui, view.maximum_chars_needed()),
                 }
                 if column < columns - 1 {
                     ui.same_line(0, -1);
@@ -249,8 +276,17 @@ impl MemoryView {
         (next_editor, changed_data)
     }
 
-    fn render_line(cursor: &mut Cursor, ui: &mut Ui, address: usize, data: &mut [u8], prev_data: &[u8], view: Option<NumberView>, writer: &mut Writer, columns: usize, text_shown: bool) -> Option<Cursor> {
-        //TODO: Hide cursor when user clicks somewhere else
+    fn render_line(cursor: &mut Cursor,
+                   ui: &mut Ui,
+                   address: usize,
+                   data: &mut [u8],
+                   prev_data: &[u8],
+                   view: Option<NumberView>,
+                   writer: &mut Writer,
+                   columns: usize,
+                   text_shown: bool)
+                   -> Option<Cursor> {
+        // TODO: Hide cursor when user clicks somewhere else
         MemoryView::render_address(ui, address);
 
         let mut new_data = None;
@@ -258,24 +294,36 @@ impl MemoryView {
         if let Some(view) = view {
             ui.same_line(0, -1);
             ui.text(TABLE_SPACING);
-            let (hex_editor, hex_data) = MemoryView::render_numbers(ui, cursor.number(), address, data, prev_data, view, columns);
+            let (hex_editor, hex_data) = MemoryView::render_numbers(ui,
+                                                                    cursor.number(),
+                                                                    address,
+                                                                    data,
+                                                                    prev_data,
+                                                                    view,
+                                                                    columns);
             res = res.or(hex_editor.map(|editor| Cursor::Number(editor)));
             new_data = new_data.or(hex_data);
         }
         if text_shown {
             ui.same_line(0, -1);
             ui.text(TABLE_SPACING);
-            let line_len = columns * match view {
+            let line_len = columns *
+                           match view {
                 Some(ref v) => v.size.byte_count(),
                 _ => 1,
             };
-            let (ascii_editor, ascii_data) = MemoryView::render_ascii_string(ui, address, data, prev_data, line_len, cursor.text());
+            let (ascii_editor, ascii_data) = MemoryView::render_ascii_string(ui,
+                                                                             address,
+                                                                             data,
+                                                                             prev_data,
+                                                                             line_len,
+                                                                             cursor.text());
             res = res.or_else(|| ascii_editor.map(|editor| Cursor::Text(editor)));
             new_data = new_data.or(ascii_data);
         }
         if let Some((abs_address, size)) = new_data {
             let offset = abs_address - address;
-            MemoryView::set_memory(writer, abs_address, &data[offset..offset+size]);
+            MemoryView::set_memory(writer, abs_address, &data[offset..offset + size]);
         }
         return res;
     }
@@ -285,16 +333,26 @@ impl MemoryView {
         let mut view_is_changed = false;
         let mut current_item;
 
-        let variants = [NumberRepresentation::Hex, NumberRepresentation::UnsignedDecimal,
-            NumberRepresentation::SignedDecimal, NumberRepresentation::Float];
-        let strings = ["Off", variants[0].as_str(), variants[1].as_str(), variants[2].as_str(), variants[3].as_str()];
+        let variants = [NumberRepresentation::Hex,
+                        NumberRepresentation::UnsignedDecimal,
+                        NumberRepresentation::SignedDecimal,
+                        NumberRepresentation::Float];
+        let strings = ["Off",
+                       variants[0].as_str(),
+                       variants[1].as_str(),
+                       variants[2].as_str(),
+                       variants[3].as_str()];
         current_item = match view {
             Some(v) => variants.iter().position(|var| *var == v.representation).unwrap_or(0) + 1,
             None => 0,
         };
         // TODO: should we calculate needed width from strings?
         ui.push_item_width(200.0);
-        if ui.combo("##number_representation", &mut current_item, &strings, strings.len(), strings.len()) {
+        if ui.combo("##number_representation",
+                    &mut current_item,
+                    &strings,
+                    strings.len(),
+                    strings.len()) {
             if current_item == 0 {
                 view = None;
             } else {
@@ -314,8 +372,13 @@ impl MemoryView {
             current_item = available_sizes.iter().position(|x| *x == view.size).unwrap_or(0);
             ui.same_line(0, -1);
             ui.push_item_width(100.0);
-            if ui.combo("##number_size", &mut current_item, &strings, available_sizes.len(), available_sizes.len()) {
-                view.size = *available_sizes.get(current_item).unwrap_or_else(|| available_sizes.first().unwrap());
+            if ui.combo("##number_size",
+                        &mut current_item,
+                        &strings,
+                        available_sizes.len(),
+                        available_sizes.len()) {
+                view.size = *available_sizes.get(current_item)
+                    .unwrap_or_else(|| available_sizes.first().unwrap());
                 view_is_changed = true;
             }
             ui.pop_item_width();
@@ -324,7 +387,11 @@ impl MemoryView {
             current_item = view.endianness.as_usize();
             ui.same_line(0, -1);
             ui.push_item_width(200.0);
-            if ui.combo("##endianness", &mut current_item, strings, strings.len(), strings.len()) {
+            if ui.combo("##endianness",
+                        &mut current_item,
+                        strings,
+                        strings.len(),
+                        strings.len()) {
                 view.endianness = Endianness::from_usize(current_item);
                 view_is_changed = true;
             }
@@ -339,8 +406,13 @@ impl MemoryView {
 
     fn render_columns_picker(&mut self, ui: &mut Ui) {
         ui.push_item_width(200.0);
-        let mut cur_item = COLUMNS_NUM_VARIANTS.iter().position(|&x| x == self.columns).unwrap_or(0);
-        if ui.combo("##byte_per_line", &mut cur_item, &COLUMNS_TEXT_VARIANTS, COLUMNS_TEXT_VARIANTS.len(), COLUMNS_TEXT_VARIANTS.len()) {
+        let mut cur_item =
+            COLUMNS_NUM_VARIANTS.iter().position(|&x| x == self.columns).unwrap_or(0);
+        if ui.combo("##byte_per_line",
+                    &mut cur_item,
+                    &COLUMNS_TEXT_VARIANTS,
+                    COLUMNS_TEXT_VARIANTS.len(),
+                    COLUMNS_TEXT_VARIANTS.len()) {
             self.columns = COLUMNS_NUM_VARIANTS.get(cur_item).map(|x| *x).unwrap_or(0);
         }
         ui.pop_item_width();
@@ -410,10 +482,11 @@ impl MemoryView {
             // One char per byte.
             chars_per_column += match self.number_view {
                 Some(ref view) => view.size.byte_count(),
-                None => 1
+                None => 1,
             }
         }
-        chars_left = chars_left.saturating_sub(large_columns * TABLE_SPACING.len() + CHARS_PER_ADDRESS);
+        chars_left =
+            chars_left.saturating_sub(large_columns * TABLE_SPACING.len() + CHARS_PER_ADDRESS);
         if chars_per_column > 0 {
             std::cmp::max(chars_left / chars_per_column, 1)
         } else {
@@ -471,7 +544,8 @@ impl MemoryView {
                 let lines_needed = (start_address - address + bytes_per_line - 1) / bytes_per_line;
                 self.start_address.set(start_address.saturating_sub(lines_needed * bytes_per_line));
             }
-            let last_address = self.start_address.get().saturating_add(bytes_per_line * lines_on_screen);
+            let last_address =
+                self.start_address.get().saturating_add(bytes_per_line * lines_on_screen);
             if address >= last_address {
                 let lines_needed = (address - last_address) / bytes_per_line + 1;
                 self.start_address.set(start_address.saturating_add(lines_needed * bytes_per_line));
@@ -485,12 +559,13 @@ impl MemoryView {
             0 => self.get_columns_from_width(ui),
             x => x,
         };
-        let bytes_per_line = columns * match self.number_view {
+        let bytes_per_line = columns *
+                             match self.number_view {
             Some(ref view) => view.size.byte_count(),
             None => 1,
         };
 
-        ui.push_style_var_vec(ImGuiStyleVar::ItemSpacing, PDVec2 {x: 0.0, y: 0.0});
+        ui.push_style_var_vec(ImGuiStyleVar::ItemSpacing, PDVec2 { x: 0.0, y: 0.0 });
         ui.begin_child("##lines", None, false, PDUIWINDOWFLAGS_HORIZONTALSCROLLBAR);
 
         let lines_needed = MemoryView::get_screen_lines_count(ui);
@@ -504,10 +579,15 @@ impl MemoryView {
             for _ in 0..lines_needed {
                 let line = lines.next().unwrap_or(&mut []);
                 let prev_line = prev_lines.next().unwrap_or(&mut []);
-                next_cursor = next_cursor.or(
-                    MemoryView::render_line(&mut self.cursor, ui, address, line, prev_line,
-                                            self.number_view, writer, columns, self.text_shown)
-                );
+                next_cursor = next_cursor.or(MemoryView::render_line(&mut self.cursor,
+                                                                     ui,
+                                                                     address,
+                                                                     line,
+                                                                     prev_line,
+                                                                     self.number_view,
+                                                                     writer,
+                                                                     columns,
+                                                                     self.text_shown));
                 address += bytes_per_line;
             }
         }
@@ -530,7 +610,9 @@ impl MemoryView {
             self.should_update_memory = true;
         }
         if self.should_update_memory && self.bytes_needed > 0 {
-            println!("Requesting {} bytes of data at {:#x}", self.bytes_needed, address);
+            println!("Requesting {} bytes of data at {:#x}",
+                     self.bytes_needed,
+                     address);
             writer.event_begin(EventType::GetMemory as u16);
             writer.write_u64("address_start", address as u64);
             writer.write_u64("size", self.bytes_needed as u64);

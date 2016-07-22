@@ -7,8 +7,8 @@
 
 use prodbg_api::{Ui, PDVec2, ImGuiStyleVar, InputTextCallbackData, Key};
 use prodbg_api::{PDUIINPUTTEXTFLAGS_NOHORIZONTALSCROLL, PDUIINPUTTEXTFLAGS_AUTOSELECTALL,
-    PDUIINPUTTEXTFLAGS_ALWAYSINSERTMODE, PDUIINPUTTEXTFLAGS_CALLBACKALWAYS,
-    PDUIINPUTTEXTFLAGS_CALLBACKCHARFILTER, PDUIInputTextFlags_};
+                 PDUIINPUTTEXTFLAGS_ALWAYSINSERTMODE, PDUIINPUTTEXTFLAGS_CALLBACKALWAYS,
+                 PDUIINPUTTEXTFLAGS_CALLBACKCHARFILTER, PDUIInputTextFlags_};
 use helper::get_text_cursor_index;
 
 pub struct CharEditor {
@@ -38,7 +38,12 @@ impl CharEditor {
         }
     }
 
-    fn render_input(&mut self, ui: &mut Ui, buf: &mut [u8], flags: PDUIInputTextFlags_, char_filter: Option<&Fn(char) -> char>) -> (i32, bool) {
+    fn render_input(&mut self,
+                    ui: &mut Ui,
+                    buf: &mut [u8],
+                    flags: PDUIInputTextFlags_,
+                    char_filter: Option<&Fn(char) -> char>)
+                    -> (i32, bool) {
         let mut cursor_pos = 0;
         let text_has_changed;
         {
@@ -62,7 +67,10 @@ impl CharEditor {
             };
             ui.push_item_width(ui.calc_text_size("f", 0).0);
             ui.push_style_var_vec(ImGuiStyleVar::FramePadding, PDVec2 { x: 0.0, y: 0.0 });
-            let mut flags = flags | PDUIINPUTTEXTFLAGS_NOHORIZONTALSCROLL | PDUIINPUTTEXTFLAGS_AUTOSELECTALL | PDUIINPUTTEXTFLAGS_ALWAYSINSERTMODE | PDUIINPUTTEXTFLAGS_CALLBACKALWAYS;
+            let mut flags = flags | PDUIINPUTTEXTFLAGS_NOHORIZONTALSCROLL |
+                            PDUIINPUTTEXTFLAGS_AUTOSELECTALL |
+                            PDUIINPUTTEXTFLAGS_ALWAYSINSERTMODE |
+                            PDUIINPUTTEXTFLAGS_CALLBACKALWAYS;
             if char_filter.is_some() {
                 flags = flags | PDUIINPUTTEXTFLAGS_CALLBACKCHARFILTER;
             }
@@ -76,8 +84,14 @@ impl CharEditor {
     /// Renders char editor.
     /// `flags` are `InputTextFlags` as i32
     /// `char_filter` is function to filter input character. Set character to `\u{0}` to cancel it.
-    /// If `char_filter` is `Some`, `InputTextFlags::CallbackCharFilter` will be added automatically.
-    pub fn render(&mut self, ui: &mut Ui, text: &str, mut cursor: usize, flags: PDUIInputTextFlags_, char_filter: Option<&Fn(char) -> char>) -> (NextPosition, Option<String>) {
+    /// If `char_filter` is `Some`, appropriate flag will be added.
+    pub fn render(&mut self,
+                  ui: &mut Ui,
+                  text: &str,
+                  mut cursor: usize,
+                  flags: PDUIInputTextFlags_,
+                  char_filter: Option<&Fn(char) -> char>)
+                  -> (NextPosition, Option<String>) {
         if text.len() == 0 {
             return (NextPosition::Unchanged, None);
         }
@@ -86,7 +100,7 @@ impl CharEditor {
         }
         let mut next_position = NextPosition::Unchanged;
         let mut buf = [text.as_bytes()[cursor], 0];
-        ui.push_style_var_vec(ImGuiStyleVar::ItemSpacing, PDVec2{x: 0.0, y: 0.0});
+        ui.push_style_var_vec(ImGuiStyleVar::ItemSpacing, PDVec2 { x: 0.0, y: 0.0 });
 
         // render bare text before cursor
         if cursor > 0 {
@@ -105,7 +119,9 @@ impl CharEditor {
         let (cursor_pos, text_has_changed) = self.render_input(ui, &mut buf, flags, char_filter);
         let changed_text = if text_has_changed {
             ::std::str::from_utf8(&buf[0..1]).ok().map(|s| s.to_owned())
-        } else { None };
+        } else {
+            None
+        };
         let char_count = text.len();
         if cursor_pos > 0 {
             next_position = if cursor == char_count - 1 {
@@ -120,7 +136,8 @@ impl CharEditor {
             let right = &text[cursor + 1..char_count];
             ui.text(right);
             if ui.is_item_hovered() && ui.is_mouse_clicked(0, false) {
-                next_position = NextPosition::Changed(cursor + 1 + get_text_cursor_index(ui, right.len()));
+                next_position = NextPosition::Changed(cursor + 1 +
+                                                      get_text_cursor_index(ui, right.len()));
             }
         }
 

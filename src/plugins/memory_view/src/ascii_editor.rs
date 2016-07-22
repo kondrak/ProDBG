@@ -23,7 +23,7 @@ impl AsciiEditor {
     fn filter_char(c: char) -> char {
         match c as u32 {
             32...127 => c,
-            _ => '\u{0}'
+            _ => '\u{0}',
         }
     }
 
@@ -35,13 +35,18 @@ impl AsciiEditor {
             32...127 => unsafe { std::char::from_u32_unchecked(*data as u32) },
             _ => '.',
         });
-        let (next_position, changed_char) = self.char_editor.render(ui, &text, 0, PDUIInputTextFlags_::empty(), Some(&AsciiEditor::filter_char));
+        let (next_position, changed_char) = self.char_editor
+            .render(ui,
+                    &text,
+                    0,
+                    PDUIInputTextFlags_::empty(),
+                    Some(&AsciiEditor::filter_char));
         ui.pop_id();
         let mut data_has_changed = false;
         if let Some(changed_text) = changed_char {
             let value = changed_text.chars().next().and_then(|c| match c as u32 {
                 32...127 => Some(c as u8),
-                _ => None
+                _ => None,
             });
             if let Some(new_value) = value {
                 data_has_changed = new_value != *data;
@@ -52,7 +57,7 @@ impl AsciiEditor {
         let next_position = match next_position {
             NextPosition::Left => self.address.checked_sub(1),
             NextPosition::Right => self.address.checked_add(1),
-            _ => None
+            _ => None,
         };
 
         return (next_position, data_has_changed);

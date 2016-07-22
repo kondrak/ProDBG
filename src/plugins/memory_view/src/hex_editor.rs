@@ -26,22 +26,29 @@ impl HexEditor {
     /// Returns position preceding current. Returns `None` if we're at (0, 0) or `self.position` is
     /// `None`.
     fn previous_position(&self) -> Option<(usize, usize)> {
-        self.address.checked_sub(self.view.size.byte_count())
+        self.address
+            .checked_sub(self.view.size.byte_count())
             .map(|address| (address, self.view.maximum_chars_needed() - 1))
     }
 
     /// Returns position succeeding current. Returns `None` if address overflows.
     fn next_position(&self) -> Option<(usize, usize)> {
-        self.address.checked_add(self.view.size.byte_count())
+        self.address
+            .checked_add(self.view.size.byte_count())
             .map(|address| (address, 0))
     }
 
-    pub fn render(&mut self, ui: &mut Ui, data: &mut[u8]) -> (Option<(usize, usize)>, bool) {
+    pub fn render(&mut self, ui: &mut Ui, data: &mut [u8]) -> (Option<(usize, usize)>, bool) {
         // ids are needed to prevent ImGui from reusing old buffer
         ui.push_id_usize(self.address);
         ui.push_id_usize(self.cursor);
         let text = self.view.format(data);
-        let (next_position, changed_digit) = self.char_editor.render(ui, &text, self.cursor, PDUIINPUTTEXTFLAGS_CHARSHEXADECIMAL, None);
+        let (next_position, changed_digit) = self.char_editor
+            .render(ui,
+                    &text,
+                    self.cursor,
+                    PDUIINPUTTEXTFLAGS_CHARSHEXADECIMAL,
+                    None);
         ui.pop_id();
         ui.pop_id();
         let mut data_has_changed = false;
