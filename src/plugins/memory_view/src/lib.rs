@@ -5,7 +5,7 @@ mod number_view;
 mod hex_editor;
 mod char_editor;
 mod ascii_editor;
-mod address_editor;
+mod address_input;
 mod helper;
 mod memory_chunk;
 
@@ -16,7 +16,7 @@ use std::str;
 use number_view::{NumberView, NumberRepresentation, Endianness};
 use hex_editor::HexEditor;
 use ascii_editor::AsciiEditor;
-use address_editor::AddressEditor;
+use address_input::AddressInput;
 use helper::get_text_cursor_index;
 use memory_chunk::MemoryChunk;
 
@@ -104,7 +104,7 @@ const COLUMNS_TEXT_VARIANTS: [&'static str; 9] = ["Fit width",
 const COLUMNS_NUM_VARIANTS: [usize; 9] = [0, 1, 2, 4, 8, 16, 32, 64, 128];
 struct MemoryView {
     /// Address of first byte of memory shown
-    start_address: AddressEditor,
+    start_address: AddressInput,
     /// Amount of bytes needed to fill one screen
     bytes_needed: usize,
     /// Current state of memory
@@ -627,7 +627,7 @@ impl MemoryView {
 impl View for MemoryView {
     fn new(_: &Ui, _: &Service) -> Self {
         MemoryView {
-            start_address: AddressEditor::new(START_ADDRESS),
+            start_address: AddressInput::new(START_ADDRESS),
             data: MemoryChunk::new(),
             prev_data: MemoryChunk::new(),
             should_update_memory: false,

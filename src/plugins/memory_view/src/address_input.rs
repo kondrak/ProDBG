@@ -1,18 +1,20 @@
-//! Editor for memory address
+//! Input field for address in memory
 
 use prodbg_api::{Ui, ImGuiStyleVar, PDVec2};
 use prodbg_api::{PDUIINPUTTEXTFLAGS_CHARSHEXADECIMAL, PDUIINPUTTEXTFLAGS_ENTERRETURNSTRUE,
                  PDUIINPUTTEXTFLAGS_NOHORIZONTALSCROLL};
 
-pub struct AddressEditor {
+/// Input field for address in memory
+pub struct AddressInput {
     // TODO: What buffer do we really need for address?
     buf: [u8; 20],
     value: usize,
 }
 
-impl AddressEditor {
-    pub fn new(value: usize) -> AddressEditor {
-        let mut res = AddressEditor {
+impl AddressInput {
+    /// Creates new input
+    pub fn new(value: usize) -> AddressInput {
+        let mut res = AddressInput {
             buf: [0; 20],
             value: 0,
         };
@@ -20,6 +22,7 @@ impl AddressEditor {
         return res;
     }
 
+    /// Renders input. Returns `true` if value has changed.
     pub fn render(&mut self, ui: &mut Ui) -> bool {
         let mut res = false;
         ui.text("0x");
@@ -32,7 +35,7 @@ impl AddressEditor {
             let len = self.buf.iter().position(|&b| b == 0).unwrap_or(self.buf.len());
             let str_slice = ::std::str::from_utf8(&self.buf[0..len]).unwrap();
             let old_value = self.value;
-            self.value = usize::from_str_radix(str_slice, 16).unwrap();
+            self.value = usize::from_str_radix(str_slice, 16).unwrap_or(old_value);
             res = self.value != old_value;
         }
         ui.pop_item_width();
@@ -40,10 +43,12 @@ impl AddressEditor {
         res
     }
 
+    /// Returns value
     pub fn get(&self) -> usize {
         self.value
     }
 
+    /// Sets new value
     pub fn set(&mut self, value: usize) {
         self.value = value;
         let data = format!("{:08x}", value);
