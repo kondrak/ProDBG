@@ -8,7 +8,7 @@ use char_editor::{CharEditor, NextPosition};
 
 pub struct HexEditor {
     pub address: usize,
-    cursor: usize,
+    pub cursor: usize,
     view: NumberView,
     char_editor: CharEditor,
 }

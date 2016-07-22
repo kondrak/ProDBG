@@ -16,6 +16,7 @@ use hex_editor::HexEditor;
 use ascii_editor::AsciiEditor;
 use address_editor::AddressEditor;
 use helper::get_text_cursor_index;
+use std::slice::ChunksMut;
 
 const START_ADDRESS: usize = 0xf0000;
 const CHARS_PER_ADDRESS: usize = 10;
@@ -23,7 +24,47 @@ const TABLE_SPACING: &'static str = "  ";
 const COLUMNS_SPACING: &'static str = " ";
 // TODO: change to Color when `const fn` is in stable Rust
 const CHANGED_DATA_COLOR: u32 = 0xff0000ff;
-const LINES_PER_SCROLL: usize = 3;
+
+struct Chunks<'a> {
+    cur_address: usize,
+    data_address: usize,
+    size: usize,
+    data: ChunksMut<'a, u8>,
+}
+
+impl<'a> Chunks<'a> {
+    pub fn new(start_address: usize, data_address: usize, size: usize, data: &'a mut [u8]) -> Chunks<'a> {
+        let offset = if data_address > start_address {
+            (size - (data_address - start_address) % size) % size
+        } else {
+            (start_address - data_address) % size
+        };
+        let iter = if offset < data.len() {
+            data[offset..].chunks_mut(size)
+        } else {
+            [].chunks_mut(size)
+        };
+        Chunks {
+            cur_address: start_address,
+            data_address: data_address + offset,
+            size: size,
+            data: iter,
+        }
+    }
+
+    pub fn next(&mut self) -> &mut [u8] {
+        let res = if self.cur_address < self.data_address {
+            &mut []
+        } else {
+            match self.data.next() {
+                Some(res) => res,
+                _ => &mut []
+            }
+        };
+        self.cur_address += self.size;
+        res
+    }
+}
 
 /// Enum that acts as cursor for current memory editor.
 enum Editor {
@@ -76,19 +117,43 @@ impl Editor {
             _ => None,
         }
     }
+
+    pub fn set_address(&mut self, address: usize) {
+        match self {
+            &mut Editor::Text(ref mut e) => e.address = address,
+            &mut Editor::Hex(ref mut e) => {
+                e.address = address;
+                e.cursor = 0;
+            },
+            _ => {}
+        }
+    }
 }
 
 const COLUMNS_TEXT_VARIANTS: [&'static str; 9] = ["Fit width", "1 column", "2 columns", "4 columns", "8 columns", "16 columns", "32 columns", "64 columns", "128 columns"];
 const COLUMNS_NUM_VARIANTS: [usize; 9] = [0, 1, 2, 4, 8, 16, 32, 64, 128];
 struct MemoryView {
-    data: Vec<u8>,
-    prev_data: Vec<u8>,
-    bytes_requested: usize,
+    /// Address of first byte of memory shown
     start_address: AddressEditor,
-    columns: usize,
-    memory_editor: Editor,
+    /// Amount of bytes needed to fill one screen
+    bytes_needed: usize,
+    /// Address of first byte of `data` and `prev_data`
+    data_start_address: usize,
+    /// Current state of memory
+    data: Vec<u8>,
+    /// Snapshotted state of memory
+    prev_data: Vec<u8>,
+    /// Memory that was requested but not yet received
     memory_request: Option<(usize, usize)>,
+    /// Set to force memory update
+    should_update_memory: bool,
+    /// Number of columns shown (if number view is on) or number of bytes shown
+    columns: usize,
+    /// Cursor of memory editor
+    memory_editor: Editor,
+    /// Picked number view
     number_view: Option<NumberView>,
+    /// Picked text view (currently on/off since only ascii text view is available)
     text_shown: bool,
 }
 
@@ -326,7 +391,8 @@ impl MemoryView {
 
     fn render_header(&mut self, ui: &mut Ui) {
         if self.start_address.render(ui) {
-            self.memory_request = Some((self.start_address.get_value(), self.bytes_requested));
+            let new_address = self.start_address.get_value();
+            self.memory_editor.set_address(new_address);
         }
         ui.same_line(0, -1);
         self.render_number_view_picker(ui);
@@ -338,7 +404,7 @@ impl MemoryView {
 
     fn process_step(&mut self) {
         std::mem::swap(&mut self.data, &mut self.prev_data);
-        self.memory_request = Some((self.start_address.get_value(), self.bytes_requested));
+        self.should_update_memory = true;
     }
 
     fn process_events(&mut self, reader: &mut Reader) {
@@ -351,6 +417,7 @@ impl MemoryView {
                 },
                 // TODO: change this event to one or several that correspond to executing code
                 et if et == EventType::SetBreakpoint as i32 => {
+                    println!("Breakpoint moved");
                     self.process_step();
                 }
                 _ => {}//println!("Got unknown event type: {:?}", event_type)}
@@ -358,29 +425,59 @@ impl MemoryView {
         }
     }
 
+    fn get_memory_intersection(first_start: usize, first_len: usize, second_start: usize, second_len: usize) -> Option<(usize, usize)> {
+        let istart = std::cmp::max(first_start, second_start);
+        let iend = std::cmp::min(first_start + first_len, second_start + second_len);
+        if iend > istart {
+            Some((istart, iend - istart))
+        } else {
+            None
+        }
+    }
+
     fn update_memory(&mut self, reader: &mut Reader) -> Result<(), ReadStatus> {
-        let address = try!(reader.find_u64("address"));
+        let address = try!(reader.find_u64("address")) as usize;
         let data = try!(reader.find_data("data"));
-        self.start_address.set_value(address as usize);
-        // TODO: set limits here. Do not copy more bytes than were reqeusted.
+        println!("Got {} bytes of data at {:#x}", data.len(), address);
+        // TODO: set limits here. Do not copy more bytes than were requested.
         self.data.resize(data.len(), 0);
         (&mut self.data).copy_from_slice(data);
-        let prev_data_len = self.prev_data.len();
-        if prev_data_len < data.len() {
-            // Do not rewrite stored data, only append data that was missing. Needed for next
-            // situation:
-            // * user changes data: prev_data and data differ;
-            // * user extends window of MemoryView
-            // * `data` of bigger size arrives and replaces `self.data`
-            // In this situation we cannot replace `prev_data` since it will lose
-            // information about changes that user did before. Also we cannot leave
-            // `self.prev_data` unchanged because user will not see changes that he makes in
-            // newly added piece of memory. The only thing we can do is to add newly added
-            // piece of memory to `prev_data`.
-            self.prev_data.extend(&data[prev_data_len..]);
+
+        if self.data_start_address == address {
+            let prev_data_len = self.prev_data.len();
+            if prev_data_len < data.len() {
+                // Do not rewrite stored data, only append data that was missing. Needed for next
+                // situation:
+                // * user changes data: prev_data and data differ;
+                // * user extends window of MemoryView
+                // * `data` of bigger size arrives and replaces `self.data`
+                // In this situation we cannot replace `prev_data` since it will lose
+                // information about changes that user did before. Also we cannot leave
+                // `self.prev_data` unchanged because user will not see changes that he makes in
+                // newly added piece of memory. The only thing we can do is to add newly added
+                // piece of memory to `prev_data`.
+                self.prev_data.extend(&data[prev_data_len..]);
+            } else {
+                self.prev_data.truncate(data.len());
+            }
         } else {
-            self.prev_data.truncate(data.len());
+            if let Some((start, len)) = MemoryView::get_memory_intersection(self.data_start_address, self.prev_data.len(), address, data.len()) {
+                let mut common = Vec::with_capacity(len);
+                let pdstart = start - self.data_start_address;
+                common.extend_from_slice(&self.prev_data[pdstart..pdstart+len]);
+                self.prev_data.resize(data.len(), 0);
+                self.prev_data.copy_from_slice(data);
+                let ndstart = start - address;
+                (&mut self.prev_data[ndstart..ndstart + len]).copy_from_slice(&common);
+            } else {
+                self.prev_data.resize(data.len(), 0);
+                self.prev_data.copy_from_slice(data);
+            }
         }
+
+        self.data_start_address = address;
+        // Since we cannot say if this is data we requested, we will always assume this to be true
+        self.memory_request = None;
         Ok(())
     }
 
@@ -438,10 +535,10 @@ impl MemoryView {
         }
         let wheel = ui.get_mouse_wheel();
         if wheel > 0.0 {
-            self.memory_editor.decrease_address(bytes_per_line * LINES_PER_SCROLL);
+            self.memory_editor.decrease_address(bytes_per_line);
         }
         if wheel < 0.0 {
-            self.memory_editor.increase_address(bytes_per_line * LINES_PER_SCROLL);
+            self.memory_editor.increase_address(bytes_per_line);
         }
     }
 
@@ -450,12 +547,12 @@ impl MemoryView {
             let start_address = self.start_address.get_value();
             if address < start_address {
                 let lines_needed = (start_address - address + bytes_per_line - 1) / bytes_per_line;
-                self.memory_request = Some((start_address.saturating_sub(lines_needed * bytes_per_line), self.bytes_requested));
+                self.start_address.set_value(start_address.saturating_sub(lines_needed * bytes_per_line));
             }
             let last_address = self.start_address.get_value().saturating_add(bytes_per_line * lines_on_screen);
             if address >= last_address {
                 let lines_needed = (address - last_address) / bytes_per_line + 1;
-                self.memory_request = Some((start_address.saturating_add(lines_needed * bytes_per_line), self.bytes_requested));
+                self.start_address.set_value(start_address.saturating_add(lines_needed * bytes_per_line));
             }
         }
     }
@@ -475,19 +572,16 @@ impl MemoryView {
         ui.begin_child("##lines", None, false, PDUIWINDOWFLAGS_HORIZONTALSCROLLBAR);
 
         let lines_needed = MemoryView::get_screen_lines_count(ui);
-        let bytes_needed = bytes_per_line * lines_needed;
-        if bytes_needed > self.bytes_requested {
-            self.memory_request = Some((self.start_address.get_value(), bytes_needed));
-        }
+        self.bytes_needed = bytes_per_line * lines_needed;
 
         let mut address = self.start_address.get_value();
         let mut next_editor = None;
         {
-            let mut lines = self.data.chunks_mut(bytes_per_line);
-            let mut prev_lines = self.prev_data.chunks(bytes_per_line);
+            let mut lines = Chunks::new(self.start_address.get_value(), self.data_start_address, bytes_per_line, &mut self.data);
+            let mut prev_lines = Chunks::new(self.start_address.get_value(), self.data_start_address, bytes_per_line, &mut self.prev_data);
             for _ in 0..lines_needed {
-                let line = lines.next().unwrap_or(&mut []);
-                let prev_line = prev_lines.next().unwrap_or(&[]);
+                let line = lines.next();
+                let prev_line = prev_lines.next();
                 next_editor = next_editor.or(
                     MemoryView::render_line(&mut self.memory_editor, ui, address, line, prev_line,
                                             self.number_view, writer, columns, self.text_shown)
@@ -505,18 +599,39 @@ impl MemoryView {
         self.handle_scroll_keys(ui, bytes_per_line, lines_needed);
         self.move_memory_to_cursor(bytes_per_line, lines_needed);
     }
+
+    fn process_memory_request(&mut self, writer: &mut Writer) {
+        let (start, size) = self.memory_request.unwrap_or((self.data_start_address, self.data.len()));
+        let (_, len) = MemoryView::get_memory_intersection(start, size, self.start_address.get_value(), self.bytes_needed).unwrap_or((0, 0));
+        if len < self.bytes_needed {
+            // Amount of data we can show is less than needed
+            self.should_update_memory = true;
+        }
+        if self.should_update_memory {
+            let address = self.start_address.get_value();
+            println!("Requesting {} bytes of data at {:#x}", self.bytes_needed, address);
+            writer.event_begin(EventType::GetMemory as u16);
+            writer.write_u64("address_start", address as u64);
+            writer.write_u64("size", self.bytes_needed as u64);
+            writer.event_end();
+            self.should_update_memory = false;
+            self.memory_request = Some((address, self.bytes_needed));
+        }
+    }
 }
 
 impl View for MemoryView {
     fn new(_: &Ui, _: &Service) -> Self {
         MemoryView {
+            start_address: AddressEditor::new(START_ADDRESS),
+            data_start_address: 0,
             data: Vec::new(),
             prev_data: Vec::new(),
-            start_address: AddressEditor::new(START_ADDRESS),
-            bytes_requested: 0,
+            should_update_memory: false,
+            memory_request: None,
+            bytes_needed: 0,
             columns: 0,
             memory_editor: Editor::None,
-            memory_request: None,
             number_view: Some(NumberView::default()),
             text_shown: true,
         }
@@ -525,14 +640,7 @@ impl View for MemoryView {
     fn update(&mut self, ui: &mut Ui, reader: &mut Reader, writer: &mut Writer) {
         self.process_events(reader);
         self.render(ui, writer);
-        if let Some((address, size)) = self.memory_request {
-            self.bytes_requested = size;
-            writer.event_begin(EventType::GetMemory as u16);
-            writer.write_u64("address_start", address as u64);
-            writer.write_u64("size", size as u64);
-            writer.event_end();
-            self.memory_request = None;
-        }
+        self.process_memory_request(writer);
     }
 }
 
