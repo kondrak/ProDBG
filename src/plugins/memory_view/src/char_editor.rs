@@ -5,7 +5,10 @@
 //! text before and after the cursor as bare text and only one symbol under the cursor is rendered
 //! as actual input.
 
-use prodbg_api::{Ui, PDVec2, InputTextFlags, ImGuiStyleVar, InputTextCallbackData, Key};
+use prodbg_api::{Ui, PDVec2, ImGuiStyleVar, InputTextCallbackData, Key};
+use prodbg_api::{PDUIINPUTTEXTFLAGS_NOHORIZONTALSCROLL, PDUIINPUTTEXTFLAGS_AUTOSELECTALL,
+    PDUIINPUTTEXTFLAGS_ALWAYSINSERTMODE, PDUIINPUTTEXTFLAGS_CALLBACKALWAYS,
+    PDUIINPUTTEXTFLAGS_CALLBACKCHARFILTER, PDUIInputTextFlags_};
 use helper::get_text_cursor_index;
 
 pub struct CharEditor {
@@ -35,13 +38,13 @@ impl CharEditor {
         }
     }
 
-    fn render_input(&mut self, ui: &mut Ui, buf: &mut [u8], flags: i32, char_filter: Option<&Fn(char) -> char>) -> (i32, bool) {
+    fn render_input(&mut self, ui: &mut Ui, buf: &mut [u8], flags: PDUIInputTextFlags_, char_filter: Option<&Fn(char) -> char>) -> (i32, bool) {
         let mut cursor_pos = 0;
         let text_has_changed;
         {
             let callback = |mut data: InputTextCallbackData| {
                 let flag = data.get_event_flag();
-                if flag == InputTextFlags::CallbackAlways as i32 {
+                if flag == PDUIINPUTTEXTFLAGS_CALLBACKALWAYS.bits() {
                     if self.should_set_pos_to_start {
                         data.set_cursor_pos(0);
                         self.should_set_pos_to_start = false;
@@ -49,7 +52,7 @@ impl CharEditor {
                         cursor_pos = data.get_cursor_pos();
                     }
                 }
-                if flag == InputTextFlags::CallbackCharFilter as i32 {
+                if flag == PDUIINPUTTEXTFLAGS_CALLBACKCHARFILTER.bits() {
                     if let Some(c) = data.get_event_char() {
                         if let Some(filter) = char_filter {
                             data.set_event_char(filter(c));
@@ -59,9 +62,9 @@ impl CharEditor {
             };
             ui.push_item_width(ui.calc_text_size("f", 0).0);
             ui.push_style_var_vec(ImGuiStyleVar::FramePadding, PDVec2 { x: 0.0, y: 0.0 });
-            let mut flags = flags | InputTextFlags::NoHorizontalScroll as i32 | InputTextFlags::AutoSelectAll as i32 | InputTextFlags::AlwaysInsertMode as i32 | InputTextFlags::CallbackAlways as i32;
+            let mut flags = flags | PDUIINPUTTEXTFLAGS_NOHORIZONTALSCROLL | PDUIINPUTTEXTFLAGS_AUTOSELECTALL | PDUIINPUTTEXTFLAGS_ALWAYSINSERTMODE | PDUIINPUTTEXTFLAGS_CALLBACKALWAYS;
             if char_filter.is_some() {
-                flags |= InputTextFlags::CallbackCharFilter as i32;
+                flags = flags | PDUIINPUTTEXTFLAGS_CALLBACKCHARFILTER;
             }
             text_has_changed = ui.input_text("##data", buf, flags, Some(&callback));
             ui.pop_style_var(1);
@@ -74,7 +77,7 @@ impl CharEditor {
     /// `flags` are `InputTextFlags` as i32
     /// `char_filter` is function to filter input character. Set character to `\u{0}` to cancel it.
     /// If `char_filter` is `Some`, `InputTextFlags::CallbackCharFilter` will be added automatically.
-    pub fn render(&mut self, ui: &mut Ui, text: &str, mut cursor: usize, flags: i32, char_filter: Option<&Fn(char) -> char>) -> (NextPosition, Option<String>) {
+    pub fn render(&mut self, ui: &mut Ui, text: &str, mut cursor: usize, flags: PDUIInputTextFlags_, char_filter: Option<&Fn(char) -> char>) -> (NextPosition, Option<String>) {
         if text.len() == 0 {
             return (NextPosition::Unchanged, None);
         }

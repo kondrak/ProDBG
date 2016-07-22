@@ -2,7 +2,7 @@
 //! This editor can only be used with Hex number representation as it relies on several properties
 //! of it.
 
-use prodbg_api::{Ui, InputTextFlags};
+use prodbg_api::{Ui, PDUIINPUTTEXTFLAGS_CHARSHEXADECIMAL};
 use number_view::{NumberView, Endianness};
 use char_editor::{CharEditor, NextPosition};
 
@@ -41,7 +41,7 @@ impl HexEditor {
         ui.push_id_usize(self.address);
         ui.push_id_usize(self.cursor);
         let text = self.view.format(data);
-        let (next_position, changed_digit) = self.char_editor.render(ui, &text, self.cursor, InputTextFlags::CharsHexadecimal as i32, None);
+        let (next_position, changed_digit) = self.char_editor.render(ui, &text, self.cursor, PDUIINPUTTEXTFLAGS_CHARSHEXADECIMAL, None);
         ui.pop_id();
         ui.pop_id();
         let mut data_has_changed = false;

@@ -2,7 +2,7 @@
 //! This editor can only be used with Hex number representation as it relies on several properties
 //! of it.
 
-use prodbg_api::Ui;
+use prodbg_api::{Ui, PDUIInputTextFlags_};
 use char_editor::{CharEditor, NextPosition};
 use std;
 
@@ -35,7 +35,7 @@ impl AsciiEditor {
             32...127 => unsafe { std::char::from_u32_unchecked(*data as u32) },
             _ => '.',
         });
-        let (next_position, changed_char) = self.char_editor.render(ui, &text, 0, 0, Some(&AsciiEditor::filter_char));
+        let (next_position, changed_char) = self.char_editor.render(ui, &text, 0, PDUIInputTextFlags_::empty(), Some(&AsciiEditor::filter_char));
         ui.pop_id();
         let mut data_has_changed = false;
         if let Some(changed_text) = changed_char {

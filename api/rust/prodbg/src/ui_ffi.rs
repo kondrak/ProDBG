@@ -332,6 +332,27 @@ bitflags! {
 	}
 }
 
+bitflags! {
+	flags PDUIInputTextFlags_: c_int {
+		const PDUIINPUTTEXTFLAGS_CHARSDECIMAL        = 1 << 0 as c_int,   // Allow 0123456789.+-*/
+		const PDUIINPUTTEXTFLAGS_CHARSHEXADECIMAL    = 1 << 1 as c_int,   // Allow 0123456789ABCDEFabcdef
+		const PDUIINPUTTEXTFLAGS_CHARSUPPERCASE      = 1 << 2 as c_int,   // Turn a..z into A..Z
+		const PDUIINPUTTEXTFLAGS_CHARSNOBLANK        = 1 << 3 as c_int,   // Filter out spaces, tabs
+		const PDUIINPUTTEXTFLAGS_AUTOSELECTALL       = 1 << 4 as c_int,   // Select entire text when first taking mouse focus
+		const PDUIINPUTTEXTFLAGS_ENTERRETURNSTRUE    = 1 << 5 as c_int,   // Return 'true' when Enter is pressed (as opposed to when the value was modified)
+		const PDUIINPUTTEXTFLAGS_CALLBACKCOMPLETION  = 1 << 6 as c_int,   // Call user function on pressing TAB (for completion handling)
+		const PDUIINPUTTEXTFLAGS_CALLBACKHISTORY     = 1 << 7 as c_int,   // Call user function on pressing Up/Down arrows (for history handling)
+		const PDUIINPUTTEXTFLAGS_CALLBACKALWAYS      = 1 << 8 as c_int,   // Call user function every time. User code may query cursor position, modify text buffer.
+		const PDUIINPUTTEXTFLAGS_CALLBACKCHARFILTER  = 1 << 9 as c_int,   // Call user function to filter character. Modify data->EventChar to replace/filter input, or return 1 to discard character.
+		const PDUIINPUTTEXTFLAGS_ALLOWTABINPUT       = 1 << 10 as c_int,  // Pressing TAB input a '\t' character into the text field
+		const PDUIINPUTTEXTFLAGS_CTRLENTERFORNEWLINE = 1 << 11 as c_int,  // In multi-line mode, allow exiting edition by pressing Enter. Ctrl+Enter to add new line (by default adds new lines with Enter).
+		const PDUIINPUTTEXTFLAGS_NOHORIZONTALSCROLL  = 1 << 12 as c_int,  // Disable following the cursor horizontally
+		const PDUIINPUTTEXTFLAGS_ALWAYSINSERTMODE    = 1 << 13 as c_int,  // Insert mode
+		const PDUIINPUTTEXTFLAGS_READONLY            = 1 << 14 as c_int,  // Read-only mode
+		const PDUIINPUTTEXTFLAGS_PASSWORD            = 1 << 15 as c_int,  // Password mode, display all characters as '*'
+	}
+}
+
 #[repr(C)]
 pub enum ImguiKey {
     Tab,       // for tabbing through fields
