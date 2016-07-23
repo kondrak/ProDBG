@@ -252,6 +252,16 @@ RustSharedLibrary {
 	}
 }
 
+-----------------------------------------------------------------------------------------------------------------------
+
+RustSharedLibrary {
+	Name = "workspace",
+	CargoConfig = "src/plugins/workspace/Cargo.toml",
+	Sources = {
+		get_rs_src("src/plugins/workspace"),
+		get_rs_src("api/rust/prodbg"),
+	}
+}
 
 -----------------------------------------------------------------------------------------------------------------------
 
@@ -316,11 +326,11 @@ Default "registers_plugin"
 Default "callstack_plugin"
 Default "sourcecode_plugin"
 Default "disassembly"
+Default "workspace"
 Default "locals_plugin"
 Default "threads_plugin"
 Default "breakpoints_plugin"
 Default "hex_memory_plugin"
---Default "workspace_plugin"
 Default "console_plugin"
 Default "amiga_uae_plugin"
 Default "amiga_uae_view_plugin"
