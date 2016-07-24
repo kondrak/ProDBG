@@ -11,4 +11,4 @@ crate-type = ["dylib"]
 # Depends
 [dependencies]
 prodbg_api = { path = "../../../api/rust/prodbg" }
-
+walkdir = "0.1"
