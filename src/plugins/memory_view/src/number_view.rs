@@ -6,7 +6,7 @@
 
 use std;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct NumberView {
     pub representation: NumberRepresentation,
     pub size: NumberSize,
@@ -215,36 +215,12 @@ impl NumberRepresentation {
     }
 }
 
-static ENDIANNESS_NAMES: [&'static str; 2] = ["Little-endian", "Big-endian"];
 impl Endianness {
-    // TODO: make this example work as test. Could not run it as a test using `cargo test`
-    /// Converts this endianness into index, which matches `Endianness::names()`
-    /// # Examples
-    /// ```
-    /// use Endianness;
-    /// let names = Endianness::names();
-    /// assert_eq!("Little-endian", names[Endianness::Little.as_usize()]);
-    /// ```
-    pub fn as_usize(&self) -> usize {
-        match *self {
-            Endianness::Little => 0,
-            Endianness::Big => 1,
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            &Endianness::Little => "Little-endian",
+            &Endianness::Big => "Big-endian",
         }
-    }
-
-    /// Converts index into `Endianness`. Uses default endianness for target build if index does
-    /// not match any.
-    pub fn from_usize(id: usize) -> Endianness {
-        match id {
-            0 => Endianness::Little,
-            1 => Endianness::Big,
-            _ => Endianness::default(),
-        }
-    }
-
-    /// Returns names for all possible representations. Index matches `Endianness::as_usize`.
-    pub fn names() -> &'static [&'static str] {
-        &ENDIANNESS_NAMES
     }
 }
 

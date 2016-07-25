@@ -92,16 +92,6 @@ impl Cursor {
     }
 }
 
-const COLUMNS_TEXT_VARIANTS: [&'static str; 9] = ["Fit width",
-                                                  "1 column",
-                                                  "2 columns",
-                                                  "4 columns",
-                                                  "8 columns",
-                                                  "16 columns",
-                                                  "32 columns",
-                                                  "64 columns",
-                                                  "128 columns"];
-const COLUMNS_NUM_VARIANTS: [usize; 9] = [0, 1, 2, 4, 8, 16, 32, 64, 128];
 struct MemoryView {
     /// Address of first byte of memory shown
     start_address: AddressInput,
@@ -121,6 +111,38 @@ struct MemoryView {
     number_view: Option<NumberView>,
     /// Picked text view (currently on/off since only ascii text view is available)
     text_shown: bool,
+}
+
+/// A wrapper to render a combo. Matches `variants` and `strings`, returning one of `variants` if
+/// new item was selected in combo. Uses maximal string width as a combo width.
+pub fn combo<'a, T>(ui: &mut Ui,
+                    id: &str,
+                    variants: &'a [T],
+                    strings: &[&str],
+                    cur: &T)
+                    -> Option<&'a T>
+    where T: PartialEq
+{
+
+    if variants.len() != strings.len() {
+        panic!("Variants and strings length should be equal in combo");
+    }
+    if variants.is_empty() {
+        panic!("Variants cannot be empty in combo");
+    }
+    let mut res = None;
+    let mut current_item = variants.iter().position(|var| var == cur).unwrap_or(0);
+    let width = strings.iter().map(|s| ui.calc_text_size(s, 0).0 as i32 + 40).max().unwrap_or(200);
+    ui.push_item_width(width as f32);
+    if ui.combo(id,
+                &mut current_item,
+                &strings,
+                strings.len(),
+                strings.len()) {
+        res = Some(&variants[current_item]);
+    }
+    ui.pop_item_width();
+    res
 }
 
 impl MemoryView {
@@ -329,93 +351,70 @@ impl MemoryView {
     }
 
     fn render_number_view_picker(&mut self, ui: &mut Ui) {
-        let mut view = self.number_view;
-        let mut view_is_changed = false;
-        let mut current_item;
-
-        let variants = [NumberRepresentation::Hex,
-                        NumberRepresentation::UnsignedDecimal,
-                        NumberRepresentation::SignedDecimal,
-                        NumberRepresentation::Float];
+        let mut res_view = self.number_view;
+        let variants = [None,
+                        Some(NumberRepresentation::Hex),
+                        Some(NumberRepresentation::UnsignedDecimal),
+                        Some(NumberRepresentation::SignedDecimal),
+                        Some(NumberRepresentation::Float)];
         let strings = ["Off",
-                       variants[0].as_str(),
-                       variants[1].as_str(),
-                       variants[2].as_str(),
-                       variants[3].as_str()];
-        current_item = match view {
-            Some(v) => variants.iter().position(|var| *var == v.representation).unwrap_or(0) + 1,
-            None => 0,
-        };
-        // TODO: should we calculate needed width from strings?
-        ui.push_item_width(200.0);
-        if ui.combo("##number_representation",
-                    &mut current_item,
-                    &strings,
-                    strings.len(),
-                    strings.len()) {
-            if current_item == 0 {
-                view = None;
-            } else {
-                match view {
-                    Some(ref mut v) => v.change_representation(variants[current_item - 1]),
-                    None => view = Some(NumberView::default()),
+                       NumberRepresentation::Hex.as_str(),
+                       NumberRepresentation::UnsignedDecimal.as_str(),
+                       NumberRepresentation::SignedDecimal.as_str(),
+                       NumberRepresentation::Float.as_str()];
+        let cur_repr = res_view.map(|v| v.representation);
+        if let Some(repr) = combo(ui,
+                                  "##number_representation",
+                                  &variants,
+                                  &strings,
+                                  &cur_repr) {
+            match *repr {
+                None => res_view = None,
+                Some(r) => {
+                    res_view = self.number_view.or(Some(NumberView::default()));
+                    if let Some(ref mut v) = res_view {
+                        v.change_representation(r);
+                    }
                 }
-
             }
-            view_is_changed = true;
-        }
-        ui.pop_item_width();
-
-        if let Some(ref mut view) = view {
-            let available_sizes = view.representation.get_avaialable_sizes();
-            let strings: Vec<&str> = available_sizes.iter().map(|size| size.as_str()).collect();
-            current_item = available_sizes.iter().position(|x| *x == view.size).unwrap_or(0);
-            ui.same_line(0, -1);
-            ui.push_item_width(100.0);
-            if ui.combo("##number_size",
-                        &mut current_item,
-                        &strings,
-                        available_sizes.len(),
-                        available_sizes.len()) {
-                view.size = *available_sizes.get(current_item)
-                    .unwrap_or_else(|| available_sizes.first().unwrap());
-                view_is_changed = true;
-            }
-            ui.pop_item_width();
-
-            let strings = Endianness::names();
-            current_item = view.endianness.as_usize();
-            ui.same_line(0, -1);
-            ui.push_item_width(200.0);
-            if ui.combo("##endianness",
-                        &mut current_item,
-                        strings,
-                        strings.len(),
-                        strings.len()) {
-                view.endianness = Endianness::from_usize(current_item);
-                view_is_changed = true;
-            }
-            ui.pop_item_width();
         }
 
-        if view_is_changed {
-            self.number_view = view;
+        if let Some(ref mut view) = res_view {
+            let variants = view.representation.get_avaialable_sizes();
+            let strings: Vec<&str> = variants.iter().map(|size| size.as_str()).collect();
+            ui.same_line(0, -1);
+            if let Some(size) = combo(ui, "##number_size", &variants, &strings, &view.size) {
+                view.size = *size;
+            }
+
+            let variants = [Endianness::Little, Endianness::Big];
+            let strings = [Endianness::Little.as_str(), Endianness::Big.as_str()];
+            ui.same_line(0, -1);
+            if let Some(e) = combo(ui, "##endianness", &variants, &strings, &view.endianness) {
+                view.endianness = *e;
+            }
+        }
+
+        if res_view != self.number_view {
+            self.number_view = res_view;
             self.cursor = Cursor::None;
         }
     }
 
     fn render_columns_picker(&mut self, ui: &mut Ui) {
-        ui.push_item_width(200.0);
-        let mut cur_item =
-            COLUMNS_NUM_VARIANTS.iter().position(|&x| x == self.columns).unwrap_or(0);
-        if ui.combo("##byte_per_line",
-                    &mut cur_item,
-                    &COLUMNS_TEXT_VARIANTS,
-                    COLUMNS_TEXT_VARIANTS.len(),
-                    COLUMNS_TEXT_VARIANTS.len()) {
-            self.columns = COLUMNS_NUM_VARIANTS.get(cur_item).map(|x| *x).unwrap_or(0);
+        let variants = [0, 1, 2, 4, 8, 16, 32, 64, 128];
+        let strings = ["Fit width",
+                       "1 column",
+                       "2 columns",
+                       "4 columns",
+                       "8 columns",
+                       "16 columns",
+                       "32 columns",
+                       "64 columns",
+                       "128 columns"];
+        if let Some(columns) = combo(ui, "##byte_per_line", &variants, &strings, &self.columns) {
+            self.columns = *columns;
         }
-        ui.pop_item_width();
     }
 
     fn render_header(&mut self, ui: &mut Ui) {
