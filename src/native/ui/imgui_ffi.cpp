@@ -103,7 +103,7 @@ static PDVec2 get_window_pos() {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-static void begin_child(const char* stringId, PDVec2 size, int border, int extraFlags) {
+static void begin_child(const char* stringId, PDVec2 size, int border, PDUIInputTextFlags extraFlags) {
     ImGui::BeginChild(stringId, ImVec2(size.x, size.y), !!border, ImGuiWindowFlags(extraFlags));
 }
 
@@ -942,7 +942,7 @@ static int textEditCallbackStub(ImGuiTextEditCallbackData* data) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-static int input_text(const char* label, char* buf, int buf_size, int flags, void (*callback)(PDUIInputTextCallbackData*), void* user_data) {
+static int input_text(const char* label, char* buf, int buf_size, PDUIInputTextFlags flags, void (*callback)(PDUIInputTextCallbackData*), void* user_data) {
     PDInputTextUserData wrappedUserData;
     wrappedUserData.callback = callback;
     wrappedUserData.user_data = user_data;

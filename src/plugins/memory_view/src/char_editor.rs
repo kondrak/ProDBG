@@ -11,6 +11,7 @@ use prodbg_api::{PDUIINPUTTEXTFLAGS_NOHORIZONTALSCROLL, PDUIINPUTTEXTFLAGS_AUTOS
                  PDUIINPUTTEXTFLAGS_CALLBACKCHARFILTER, PDUIInputTextFlags_};
 use helper::get_text_cursor_index;
 
+#[derive(Debug)]
 pub struct CharEditor {
     should_take_focus: bool,
     should_set_pos_to_start: bool,
@@ -49,7 +50,7 @@ impl CharEditor {
         {
             let callback = |mut data: InputTextCallbackData| {
                 let flag = data.get_event_flag();
-                if flag == PDUIINPUTTEXTFLAGS_CALLBACKALWAYS.bits() {
+                if flag == PDUIINPUTTEXTFLAGS_CALLBACKALWAYS {
                     if self.should_set_pos_to_start {
                         data.set_cursor_pos(0);
                         self.should_set_pos_to_start = false;
@@ -57,7 +58,7 @@ impl CharEditor {
                         cursor_pos = data.get_cursor_pos();
                     }
                 }
-                if flag == PDUIINPUTTEXTFLAGS_CALLBACKCHARFILTER.bits() {
+                if flag == PDUIINPUTTEXTFLAGS_CALLBACKCHARFILTER {
                     if let Some(c) = data.get_event_char() {
                         if let Some(filter) = char_filter {
                             data.set_event_char(filter(c));

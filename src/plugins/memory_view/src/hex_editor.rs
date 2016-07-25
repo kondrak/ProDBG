@@ -6,6 +6,7 @@ use prodbg_api::{Ui, PDUIINPUTTEXTFLAGS_CHARSHEXADECIMAL};
 use number_view::{NumberView, Endianness};
 use char_editor::{CharEditor, NextPosition};
 
+#[derive(Debug)]
 pub struct HexEditor {
     pub address: usize,
     pub cursor: usize,

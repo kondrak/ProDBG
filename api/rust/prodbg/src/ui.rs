@@ -299,8 +299,8 @@ impl<'a> InputTextCallbackData<'a> {
         }
     }
 
-    pub fn get_event_flag(&self) -> i32 {
-        self.0.event_flag as i32
+    pub fn get_event_flag(&self) -> PDUIInputTextFlags_ {
+        PDUIInputTextFlags_::from_bits_truncate(self.0.event_flag)
     }
 }
 
