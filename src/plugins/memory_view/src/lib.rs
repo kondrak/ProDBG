@@ -347,7 +347,10 @@ impl MemoryView {
             let offset = abs_address - address;
             MemoryView::set_memory(writer, abs_address, &data[offset..offset + size]);
         }
-        return res;
+        return match view {
+            Some(v) if v.representation == NumberRepresentation::Hex => res,
+            _ => None,
+        };
     }
 
     fn render_number_view_picker(&mut self, ui: &mut Ui) {
