@@ -443,11 +443,10 @@ impl MemoryView {
             match event_type {
                 et if et == EventType::SetMemory as i32 => {
                     if let Err(e) = self.update_memory(reader) {
-                        println!("Could not update memory: {:?}", e);
+                        panic!("Could not update memory: {:?}", e);
                     }
                 }
                 et if et == EventType::SetBreakpoint as i32 => {
-                    println!("Breakpoint moved");
                     self.process_step();
                 }
                 _ => {}
@@ -458,7 +457,6 @@ impl MemoryView {
     fn update_memory(&mut self, reader: &mut Reader) -> Result<(), ReadStatus> {
         let address = try!(reader.find_u64("address")) as usize;
         let data = try!(reader.find_data("data"));
-        println!("Got {} bytes of data at {:#x}", data.len(), address);
         self.data.set_accessible(address, data);
         self.prev_data.extend_accessible(address, data);
         Ok(())
@@ -612,9 +610,6 @@ impl MemoryView {
             self.should_update_memory = true;
         }
         if self.should_update_memory && self.bytes_needed > 0 {
-            println!("Requesting {} bytes of data at {:#x}",
-                     self.bytes_needed,
-                     address);
             writer.event_begin(EventType::GetMemory as u16);
             writer.write_u64("address_start", address as u64);
             writer.write_u64("size", self.bytes_needed as u64);
