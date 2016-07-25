@@ -503,8 +503,8 @@ impl Ui {
             let mut c_state: i32 = if *state { 1 } else { 0 };
             let res = ((*self.api).checkbox)(c_label, &mut c_state) != 0;
             *state = c_state != 0;
-            return res;
-        };
+            res
+        }
     }
 
     #[inline]
@@ -535,7 +535,7 @@ impl Ui {
         extern fn c_get_item(closure: *mut c_void, item_index: c_int, res: *mut *const c_char) -> c_int {
             unsafe {
                 let get_data: *const *mut FnMut(c_int, &mut *const c_char) -> c_int = mem::transmute(closure);
-                return (**get_data)(item_index, &mut *res);
+                (**get_data)(item_index, &mut *res)
             }
         }
         unsafe {
@@ -547,14 +547,14 @@ impl Ui {
                 let get_item = |item_index: c_int, res: &mut *const c_char| -> c_int {
                     buffer = CFixedString::from_str(items[item_index as usize]);
                     *res = buffer.as_ptr();
-                    return 1;
+                    1
                 };
                 let tmp = &get_item as &FnMut(c_int, &mut *const c_char) -> c_int;
                 res = ((*self.api).combo3)(c_label, &mut item, c_get_item, mem::transmute(&tmp), count as i32, height as i32) != 0;
             }
             drop(buffer);
             *current_item = item as usize;
-            return res;
+            res
         }
     }
 
@@ -579,7 +579,7 @@ impl Ui {
             let mut start_index = 0i32;
             let mut end_index = 0i32;
             ((*self.api).calc_list_clipping)(i32::max_value(), items_height, &mut start_index, &mut end_index);
-            return (start_index as usize, end_index as usize);
+            (start_index as usize, end_index as usize)
         }
     }
 
